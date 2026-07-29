@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bancor · Growth Panel Comercial 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* superficies */
+    --bg:#F6FAF9;
+    --bg-2:#EEF5F3;
+    --surface:#FFFFFF;
+    --surface-2:#F2F7F6;
+    --border: rgba(0,64,59,0.12);
+    --border-strong: rgba(0,64,59,0.22);
+
+    /* tinta (texto) */
+    --ink-900:#07211D;
+    --ink-700:#25443F;
+    --ink-500:#5C7C77;
+    --ink-300:#95B0AC;
+
+    /* marca */
+    --teal-900:#00312E;
+    --teal-700:#00504C;
+    --teal-600:#00605C;
+    --teal-500:#0B8078;
+
+    /* acentos vivos (para fills, dots, barras, gauge) */
+    --orange-fill:#EE632C;
+    --lime-fill:#ADEB00;
+    --gold-fill:#FFDF00;
+    --magenta-fill:#E70188;
+    --lavender-fill:#CB91FF;
+
+    /* acentos oscurecidos (para texto sobre blanco, AA) */
+    --orange-ink:#C24717;
+    --lime-ink:#5C8A00;
+    --gold-ink:#946600;
+    --magenta-ink:#A1015F;
+    --lavender-ink:#7A3FC4;
+
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+
+    --shadow-sm: 0 1px 2px rgba(7,33,29,0.05), 0 1px 1px rgba(7,33,29,0.04);
+    --shadow-md: 0 8px 24px rgba(7,33,29,0.07);
+    --shadow-lg: 0 16px 40px rgba(7,33,29,0.10);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family: var(--font-body);
+    background:
+      radial-gradient(ellipse 90% 60% at 15% -10%, rgba(11,128,120,0.10) 0%, transparent 55%),
+      radial-gradient(ellipse 70% 50% at 100% 0%, rgba(238,99,44,0.06) 0%, transparent 60%),
+      var(--bg);
+    color: var(--ink-900);
+    min-height:100vh;
+    overflow-x:hidden;
+    position:relative;
+  }
+  #bg-canvas{position:fixed; inset:0; z-index:0; opacity:0.5; pointer-events:none;}
+
+  ::selection{ background: var(--lime-fill); color:var(--ink-900); }
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background: var(--border-strong); border-radius:4px;}
+
+  .wrap{position:relative; z-index:1; max-width:1400px; margin:0 auto; padding: 22px 28px 60px;}
+  @media (max-width:640px){ .wrap{ padding: 16px 16px 40px; } }
+
+  /* ---------- HEADER ---------- */
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    gap: 16px; flex-wrap:wrap;
+    padding-bottom: 20px; border-bottom: 1px solid var(--border);
+    margin-bottom: 26px;
+  }
+  .brand{ display:flex; align-items:center; gap:14px; }
+  .brand-mark{ position:relative; width:44px; height:44px; flex-shrink:0; }
+  .brand-mark svg{ width:100%; height:100%; }
+  .brand-text .wordmark{
+    font-family: var(--font-display); font-weight:700; font-size: 22px;
+    letter-spacing: 0.3px; color: var(--ink-900); line-height:1;
+  }
+  .brand-text .tagline{
+    font-family: var(--font-mono); font-size: 10.5px; text-transform:uppercase;
+    letter-spacing: 1.4px; color: var(--teal-600); margin-top: 5px;
+  }
+  .header-right{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .clock{
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-700);
+    background: var(--surface); border:1px solid var(--border);
+    padding: 8px 14px; border-radius: 10px; display:flex; align-items:center; gap:8px;
+    box-shadow: var(--shadow-sm);
+  }
+  .clock .dot{ width:7px; height:7px; border-radius:50%; background: var(--lime-fill); box-shadow:0 0 6px var(--lime-fill); animation: pulse 2s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  .icon-btn{
+    width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    background: var(--surface); border:1px solid var(--border); color: var(--ink-700);
+    cursor:pointer; transition: all .2s ease; box-shadow: var(--shadow-sm); flex-shrink:0;
+  }
+  .icon-btn:hover{ background: var(--teal-600); border-color: var(--teal-600); color:#fff; transform: translateY(-1px); }
+  .icon-btn svg{ width:18px; height:18px; }
+
+  /* ---------- SETTINGS PANEL ---------- */
+  .settings-overlay{
+    position:fixed; inset:0; background: rgba(7,33,29,0.28); backdrop-filter: blur(3px);
+    z-index: 50; display:none; align-items:flex-start; justify-content:flex-end;
+  }
+  .settings-overlay.open{ display:flex; }
+  .settings-panel{
+    width: min(420px, 92vw); height:100%; background: var(--surface);
+    border-left: 1px solid var(--border); padding: 26px; overflow-y:auto;
+    animation: slideIn .25s ease; box-shadow: var(--shadow-lg);
+  }
+  @keyframes slideIn{ from{ transform: translateX(30px); opacity:0;} to{ transform: translateX(0); opacity:1;} }
+  .settings-panel h2{ font-family: var(--font-display); font-size:19px; margin-bottom:6px; color:var(--ink-900); }
+  .settings-panel .sub{ font-size:12.5px; color: var(--ink-500); margin-bottom:22px; line-height:1.5; }
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:12px; color: var(--ink-700); margin-bottom:6px; font-family: var(--font-mono); letter-spacing:0.3px; }
+  .field input{
+    width:100%; background: var(--surface-2); border:1px solid var(--border); color: var(--ink-900);
+    padding: 10px 12px; border-radius:8px; font-size:13px; font-family: var(--font-mono);
+  }
+  .field input:focus{ outline:none; border-color: var(--teal-500); }
+  .btn{
+    font-family: var(--font-body); font-weight:600; font-size:13.5px; cursor:pointer;
+    padding: 11px 18px; border-radius:9px; border:none; transition: all .2s ease;
+  }
+  .btn-primary{ background: var(--teal-600); color: #fff; }
+  .btn-primary:hover{ filter:brightness(1.1); transform: translateY(-1px); }
+  .btn-ghost{ background: transparent; border:1px solid var(--border-strong); color: var(--ink-700); }
+  .btn-ghost:hover{ background: var(--surface-2); }
+  .btn-row{ display:flex; gap:10px; margin-top:6px; flex-wrap:wrap; }
+  .info-box{
+    background: rgba(11,128,120,0.06); border:1px solid rgba(11,128,120,0.25); border-radius:10px;
+    padding:12px 14px; font-size:12px; line-height:1.55; color: var(--ink-700); margin-top:18px;
+  }
+  .info-box b{ color: var(--teal-700); }
+  .info-box + .info-box{ background: rgba(231,1,136,0.05); border-color: rgba(231,1,136,0.25); }
+  .info-box + .info-box b{ color: var(--magenta-ink); }
+
+  /* ---------- HERO ---------- */
+  .hero{
+    display:grid; grid-template-columns: 300px 1fr; gap: 28px; align-items:center;
+    background: var(--surface); border:1px solid var(--border); border-radius:22px;
+    padding: 30px; margin-bottom: 26px; position:relative; overflow:hidden;
+    box-shadow: var(--shadow-md);
+  }
+  .hero::before{
+    content:''; position:absolute; top:-50%; right:-15%; width:55%; height:180%;
+    background: radial-gradient(circle, rgba(238,99,44,0.07) 0%, transparent 65%);
+    pointer-events:none;
+  }
+  @media (max-width:980px){ .hero{ grid-template-columns:1fr; padding:24px; } }
+  @media (max-width:640px){ .hero{ padding:20px 16px; border-radius:18px; } }
+
+  .gauge-wrap{ position:relative; width:100%; max-width:260px; aspect-ratio:1/1; margin:0 auto; }
+  .gauge-wrap svg{ width:100%; height:100%; transform: rotate(-90deg); overflow:visible; }
+  .gauge-bg{ fill:none; stroke: var(--surface-2); stroke-width:16; }
+  .gauge-fg{ fill:none; stroke: url(#gaugeGradient); stroke-width:16; stroke-linecap:round;
+    stroke-dasharray: 754; stroke-dashoffset: 754; transition: stroke-dashoffset 1.6s cubic-bezier(.16,1,.3,1); }
+  .gauge-center{
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding: 0 20px;
+  }
+  .gauge-center .pct{ font-family: var(--font-display); font-size: clamp(34px,9vw,50px); font-weight:700; line-height:1; color: var(--ink-900); }
+  .gauge-center .lbl{ font-family: var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:1.2px; color: var(--ink-500); margin-top:8px; text-align:center; }
+
+  .hero-side{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .squad-mini-grid{ display:grid; grid-template-columns: repeat(4,1fr); gap:12px; }
+  @media (max-width:760px){ .squad-mini-grid{ grid-template-columns: repeat(2,1fr); } }
+  .squad-mini-card{
+    background: var(--surface-2); border:1px solid var(--border); border-top:3px solid var(--teal-500);
+    border-radius:14px; padding:14px; cursor:pointer; transition: all .2s ease; min-width:0;
+  }
+  .squad-mini-card:hover{ transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+  .squad-mini-card.is-active{ background: var(--surface); box-shadow: var(--shadow-md); }
+  .squad-mini-card .sm-name{ font-family: var(--font-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:0.6px; color: var(--ink-500); overflow-wrap:break-word; }
+  .squad-mini-card .sm-pct{ font-family: var(--font-display); font-size:26px; font-weight:700; margin-top:6px; color: var(--ink-900); }
+  .squad-mini-card .sm-sub{ font-size:10.5px; color: var(--ink-500); margin-top:3px; }
+
+  .highlight-card{
+    border-radius:16px; padding:18px 20px; border:1px solid; display:flex; gap:14px; align-items:flex-start;
+  }
+  .highlight-card .hl-icon{ font-size:22px; line-height:1; flex-shrink:0; }
+  .highlight-card .hl-body{ min-width:0; }
+  .highlight-card .hl-tag{ font-family: var(--font-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:5px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .highlight-card .hl-text{ font-size:14px; line-height:1.5; color: var(--ink-900); }
+  .highlight-card.hl-positive{ background: rgba(92,138,0,0.06); border-color: rgba(92,138,0,0.28); }
+  .highlight-card.hl-positive .hl-tag{ color: var(--lime-ink); }
+  .highlight-card.hl-negative{ background: rgba(161,1,95,0.05); border-color: rgba(161,1,95,0.26); }
+  .highlight-card.hl-negative .hl-tag{ color: var(--magenta-ink); }
+  .highlight-card.hl-neutral{ background: var(--surface-2); border-color: var(--border); }
+  .highlight-card.hl-neutral .hl-tag{ color: var(--ink-500); }
+
+  .hero-title{ grid-column: 1 / -1; margin-bottom: -4px; }
+  .hero-title h1{ font-family: var(--font-display); font-size:14px; font-weight:600; color: var(--ink-700); text-transform:uppercase; letter-spacing:1.2px; }
+
+  /* ---------- TABS ---------- */
+  .tabs{ display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; }
+  .tab{
+    font-family: var(--font-mono); font-size:12px; padding:9px 16px; border-radius:999px;
+    background: var(--surface); border:1px solid var(--border); color: var(--ink-700); cursor:pointer;
+    transition: all .2s ease; letter-spacing:0.3px; display:flex; align-items:center; box-shadow: var(--shadow-sm);
+  }
+  .tab.active{ background: var(--ink-900); color:#fff; border-color: var(--ink-900); font-weight:600; }
+  .tab:hover:not(.active){ border-color: var(--teal-500); color: var(--ink-900); }
+  .tab .tab-dot{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:7px; }
+
+  .squad-summary{
+    display:flex; align-items:center; gap:20px; flex-wrap:wrap;
+    background: var(--surface); border:1px solid var(--border); border-left-width:4px;
+    border-radius:14px; padding:16px 20px; margin-bottom:18px; font-size:13px;
+    box-shadow: var(--shadow-sm);
+  }
+  .squad-summary .sq-objetivo{ color: var(--ink-500); flex:1; min-width:220px; line-height:1.45; }
+  .squad-summary .sq-objetivo b{ color: var(--ink-900); font-family: var(--font-display); display:block; font-size:14px; margin-bottom:3px; }
+  .squad-summary .sq-figs{ display:flex; gap:22px; font-family: var(--font-mono); flex-wrap:wrap; }
+  .squad-summary .sq-figs div span{ display:block; font-size:10px; color: var(--ink-500); text-transform:uppercase; letter-spacing:0.8px; }
+  .squad-summary .sq-figs div b{ font-size:15px; font-family:var(--font-body); color:var(--ink-900); }
+
+  .squad-chip{ font-family: var(--font-mono); font-size:9.5px; padding:2px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:0.5px; font-weight:600; }
+
+  /* ---------- TOOLTIPS ---------- */
+  .has-tip{ position:relative; cursor:help; }
+  .has-tip::after{
+    content: attr(data-tip);
+    position:absolute; bottom: calc(100% + 10px); left:50%; transform: translateX(-50%) translateY(4px);
+    width: max-content; max-width: min(240px, 65vw); background: var(--ink-900); color: #fff;
+    border: 1px solid var(--teal-500); border-radius: 9px; padding: 10px 12px; font-size:11.5px;
+    font-family: var(--font-body); line-height:1.45; font-weight:400; letter-spacing:0;
+    text-transform:none; box-shadow: var(--shadow-lg);
+    opacity:0; pointer-events:none; transition: opacity .18s ease, transform .18s ease; z-index:40;
+  }
+  .has-tip::before{
+    content:''; position:absolute; bottom: calc(100% + 4px); left:50%; transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: var(--teal-500);
+    opacity:0; transition: opacity .18s ease; z-index:40;
+  }
+  .has-tip:hover::after{ opacity:1; transform: translateX(-50%) translateY(0); }
+  .has-tip:hover::before{ opacity:1; }
+  .has-tip.tip-right::after{ left:0; transform: translateX(0) translateY(4px); }
+  .has-tip.tip-right:hover::after{ transform: translateX(0) translateY(0); }
+  .has-tip.tip-right::before{ left:16px; transform:none; }
+  @media (max-width:640px){
+    .has-tip::after{ left:0 !important; right:0; transform:translateX(0) translateY(4px) !important; max-width:min(220px,80vw); }
+    .has-tip:hover::after{ transform:translateX(0) translateY(0) !important; }
+    .has-tip::before{ left:16px !important; transform:none !important; }
+  }
+
+  /* ---------- EVOLUTIVO MENSUAL ---------- */
+  .evolutivo-panel{
+    background: var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:18px 20px; margin-bottom:18px; box-shadow: var(--shadow-sm);
+  }
+  .evolutivo-panel .ev-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
+  .evolutivo-panel h4{ font-family: var(--font-display); font-size:14px; font-weight:600; color:var(--ink-900); }
+  .evolutivo-panel .ev-sub{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); }
+  .ev-select{
+    font-family: var(--font-mono); font-size:11.5px; color: var(--ink-900); background: var(--surface-2);
+    border:1px solid var(--border-strong); border-radius:8px; padding:6px 10px; cursor:pointer; max-width:220px;
+  }
+  .ev-select:focus{ outline:none; border-color: var(--teal-500); }
+  .ev-chart{ display:flex; align-items:flex-end; gap:8px; height:120px; padding-top:20px; }
+  .ev-bar-wrap{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; gap:6px; }
+  .ev-bar{ width:100%; max-width:36px; border-radius:6px 6px 3px 3px; transition: height .8s cubic-bezier(.16,1,.3,1); position:relative; min-height:3px; }
+  .ev-bar-label{ font-family: var(--font-mono); font-size:10px; color: var(--ink-500); }
+  .ev-bar-pct{ font-family: var(--font-mono); font-size:9.5px; color: var(--ink-700); }
+  .ev-empty{ font-size:12.5px; color: var(--ink-500); padding: 10px 0; }
+
+  /* ---------- MAIN GRID ---------- */
+  .main-grid{ display:grid; grid-template-columns: 1.6fr 1fr; gap: 22px; align-items:start; }
+  @media (max-width: 980px){ .main-grid{ grid-template-columns: 1fr; } }
+
+  .card-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
+  .product-card{
+    background: var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px;
+    transition: all .25s ease; position:relative; overflow:hidden; cursor:default;
+    box-shadow: var(--shadow-sm);
+  }
+  .product-card:hover{ transform: translateY(-3px); border-color: var(--teal-500); box-shadow: var(--shadow-md); }
+  .card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:2px; }
+  .card-head .titles{ min-width:0; }
+  .product-card .p-name{ font-family: var(--font-display); font-size:14px; font-weight:600; color:var(--ink-900); line-height:1.25; }
+  .product-card .p-sub{ font-family: var(--font-mono); font-size:9.5px; color: var(--ink-500); text-transform:uppercase; letter-spacing:0.6px; margin-top:3px; }
+  .badge{
+    font-family: var(--font-mono); font-size:10.5px; font-weight:600;
+    padding:3px 9px; border-radius:999px; white-space:nowrap; flex-shrink:0;
+  }
+  .badge.ok{ background: rgba(92,138,0,0.12); color: var(--lime-ink); border:1px solid rgba(92,138,0,0.3); }
+  .badge.warn{ background: rgba(148,102,0,0.12); color: var(--gold-ink); border:1px solid rgba(148,102,0,0.3); }
+  .badge.bad{ background: rgba(161,1,95,0.10); color: var(--magenta-ink); border:1px solid rgba(161,1,95,0.28); }
+  .spark{ width:100%; height:44px; margin: 12px 0 8px; }
+  .p-figs{ display:flex; justify-content:space-between; gap:10px; font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); }
+  .p-figs > div{ min-width:0; }
+  .p-figs b{ color: var(--ink-900); font-size: 13px; display:block; font-family: var(--font-body); overflow-wrap:break-word; }
+
+  /* ---------- INSIGHTS FEED ---------- */
+  .insights-panel{
+    background: var(--surface); border:1px solid var(--border); border-radius:18px; padding:20px;
+    max-height: 720px; overflow-y:auto; box-shadow: var(--shadow-sm);
+  }
+  .insights-panel h3{ font-family: var(--font-display); font-size:16px; margin-bottom:4px; display:flex; align-items:center; gap:8px; color:var(--ink-900); }
+  .insights-panel h3 .lime-dot{ width:8px; height:8px; border-radius:50%; background:var(--lime-fill); box-shadow:0 0 6px var(--lime-fill); }
+  .insights-panel .sub{ font-size:11.5px; color: var(--ink-500); margin-bottom:16px; }
+  .insight-item{
+    border-left: 3px solid var(--teal-500); padding: 10px 0 10px 14px; margin-bottom: 12px; position:relative;
+    animation: fadeUp .5s ease both;
+  }
+  @keyframes fadeUp{ from{opacity:0; transform: translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .insight-item.positive{ border-color: var(--lime-fill); }
+  .insight-item.negative{ border-color: var(--magenta-fill); }
+  .insight-item.note{ border-color: var(--lavender-fill); }
+  .insight-item .i-tag{ font-family: var(--font-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:0.8px; color: var(--ink-500); display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .insight-item .i-text{ font-size:13px; line-height:1.5; margin-top:5px; color: var(--ink-900); }
+  .insight-item .i-meta{ font-family: var(--font-mono); font-size:10px; color: var(--ink-300); margin-top:6px; }
+
+  /* ---------- FOOTER ---------- */
+  footer{
+    margin-top: 26px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+    padding-top: 18px; border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size:11.5px; color: var(--ink-500);
+  }
+  footer .sync-status{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .refresh-btn{
+    display:flex; align-items:center; gap:8px; background: var(--teal-600); color: #fff;
+    border:1px solid var(--teal-600); padding: 9px 16px; border-radius:9px; cursor:pointer; font-family: var(--font-body); font-weight:600; font-size:12.5px;
+  }
+  .refresh-btn:hover{ background: var(--teal-700); }
+  .refresh-btn svg{ width:14px; height:14px; }
+  .refresh-btn.loading svg{ animation: spin 1s linear infinite; }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  .demo-flag{
+    background: rgba(148,102,0,0.10); color: var(--gold-ink); border:1px solid rgba(148,102,0,0.3);
+    padding: 3px 10px; border-radius:999px; font-size:10.5px;
+  }
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0;
+    background: var(--ink-900); border:1px solid var(--teal-500); color: #fff;
+    padding: 12px 22px; border-radius:10px; font-size:13px; z-index:100; transition: all .3s ease; pointer-events:none;
+    max-width: min(360px, 86vw); text-align:center; box-shadow: var(--shadow-lg);
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<canvas id="bg-canvas"></canvas>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 46 46"><path d="M23 4 A19 19 0 0 1 42 23 L23 23 Z" fill="var(--orange-fill)"/><circle cx="23" cy="23" r="18" fill="none" stroke="var(--ink-900)" stroke-width="3.4"/></svg>
+      </div>
+      <div class="brand-text">
+        <div class="wordmark">BANCOR</div>
+        <div class="tagline">Growth · Panel Comercial 2026</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="clock"><span class="dot"></span><span id="clock-text">--:--:--</span></div>
+      <div class="icon-btn" id="settings-btn" title="Conectar Google Sheet">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-title"><h1>Estado del plan de Growth · consolidado por squad</h1></div>
+    <div class="gauge-wrap">
+      <svg viewBox="0 0 260 260">
+        <defs>
+          <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="var(--orange-fill)"/>
+            <stop offset="55%" stop-color="var(--gold-fill)"/>
+            <stop offset="100%" stop-color="var(--lime-fill)"/>
+          </linearGradient>
+        </defs>
+        <circle class="gauge-bg" cx="130" cy="130" r="120"/>
+        <circle class="gauge-fg" id="gauge-fg" cx="130" cy="130" r="120"/>
+      </svg>
+      <div class="gauge-center has-tip" data-tip="Promedio simple del ritmo de todos los productos con carga: por cada producto, acumulado real ÷ objetivo prorrateado a los días efectivamente cargados este mes. Luego se promedia entre productos (no se pondera por volumen).">
+        <div class="pct" id="gauge-pct">0%</div>
+        <div class="lbl">Ritmo promedio<br>vs. objetivo a la fecha</div>
+      </div>
+    </div>
+    <div class="hero-side">
+      <div class="squad-mini-grid" id="squad-mini-grid"></div>
+      <div class="highlight-card hl-neutral" id="highlight-card"></div>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs" id="segment-tabs"></div>
+  <div class="squad-summary" id="squad-summary"></div>
+  <div class="evolutivo-panel" id="evolutivo-panel"></div>
+
+  <!-- MAIN -->
+  <div class="main-grid">
+    <div class="card-grid" id="card-grid"></div>
+    <div class="insights-panel">
+      <h3><span class="lime-dot"></span>Growth Insights</h3>
+      <div class="sub has-tip tip-right" data-tip="Se generan comparando el ritmo (real ÷ objetivo prorrateado) de cada producto: ▲ oportunidad si ritmo ≥ 110%, ▼ atención si ritmo ≤ 85%. Ordenados por magnitud de la desviación.">Lecturas automáticas de la evolución + comentarios del equipo ⓘ</div>
+      <div id="insights-feed"></div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="sync-status">
+      <span id="demo-flag" class="demo-flag" style="display:none;">Datos de ejemplo</span>
+      <span>Última actualización: <b id="last-sync" style="color:var(--ink-900);">—</b></span>
+      <span>·</span>
+      <span>Próximo chequeo automático: hoy 20:00 (mientras esta pestaña permanezca abierta)</span>
+    </div>
+    <button class="refresh-btn" id="refresh-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      Actualizar ahora
+    </button>
+  </footer>
+</div>
+
+<!-- SETTINGS PANEL -->
+<div class="settings-overlay" id="settings-overlay">
+  <div class="settings-panel">
+    <h2>Conectar Google Sheet</h2>
+    <div class="sub">El panel lee directamente el archivo <b>growth_squads_tracking_2026</b>: la pestaña "Plan Anual" + las 12 pestañas mensuales (Ene...Dic), tal como está armado hoy. Solo necesita el ID de la planilla — los nombres de pestaña ya están fijos.</div>
+    <div id="storage-warning" class="info-box" style="display:none; background:rgba(161,1,95,0.06); border-color:rgba(161,1,95,0.28);">
+      <b style="color:var(--magenta-ink);">⚠ Este navegador no permite guardar nada (ni siquiera localStorage).</b> Puede pasar en modo incógnito con almacenamiento bloqueado. Vas a poder usar el panel, pero tenés que volver a pegar la URL cada vez que recargues la página.
+    </div>
+    <div class="field">
+      <label>URL o ID del Google Sheet</label>
+      <input id="input-sheet-id" placeholder="https://docs.google.com/spreadsheets/d/1AbC.../edit">
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="save-config-btn">Guardar y sincronizar</button>
+      <button class="btn btn-ghost" id="demo-config-btn">Usar datos de ejemplo</button>
+    </div>
+
+    <div class="info-box">
+      <b>Paso previo en Google Sheets:</b> Archivo → Compartir → Publicar en la web → "Todo el documento" → formato CSV → Publicar. El panel necesita leer cada pestaña (Plan Anual + Ene..Dic) como CSV público.
+    </div>
+    <div class="info-box">
+      <b>Sobre el horario de 20hs:</b> este panel vive en tu navegador, no en un servidor. Se auto-actualiza al abrirlo y revisa cada minuto si ya pasaron las 20hs para sincronizar de nuevo, pero eso requiere la pestaña abierta. Para una sincronización 100% desatendida hace falta un Google Apps Script con trigger horario.
+    </div>
+
+    <div class="sub" style="margin-top:22px;">Cómo lee cada pestaña mensual:</div>
+    <div class="sub" style="font-size:11px; line-height:1.6;">
+      Por cada squad busca el bloque "SQUAD · PO: ... · Own: ...", toma la fila de encabezado (Día | Fecha | producto 1 | producto 2 | ... | TOTAL) y las filas diarias hasta la fila <b>TOTAL ACUM</b>. El objetivo mensual lo toma siempre de <b>Plan Anual</b> (no de la fila "META MES" de cada mes, para evitar arrastrar desalineaciones si alguna celda quedó vacía ahí). El ritmo de cada producto se calcula prorrateando ese objetivo por los días con carga real.
+    </div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn btn-ghost" id="close-settings-btn" style="width:100%;">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   BANCOR GROWTH DASHBOARD — datos reales: Plan Anual + seguimiento diario por squad
+   ============================================================ */
+
+const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+const DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
+
+const SQUAD_COLORS = {
+  'Adquisición y Crosselling': 'var(--orange-ink)',
+  'Habitualidad': 'var(--lime-ink)',
+  'Bezza Hub': 'var(--lavender-ink)',
+  'Empresas': 'var(--gold-ink)'
+};
+const SQUAD_FILLS = {
+  'Adquisición y Crosselling': 'var(--orange-fill)',
+  'Habitualidad': 'var(--lime-fill)',
+  'Bezza Hub': 'var(--lavender-fill)',
+  'Empresas': 'var(--gold-fill)'
+};
+const SQUAD_OBJETIVOS = {
+  'Adquisición y Crosselling': 'Sumar clientes nuevos y profundizar productos por cliente (crosssell).',
+  'Habitualidad': 'Aumentar la frecuencia de uso y el engagement transaccional recurrente.',
+  'Bezza Hub': 'Migrar y activar clientes en el canal digital Bezza.',
+  'Empresas': 'Crecer la cartera de banca empresas en productos core.'
+};
+
+/* Dataset real embebido (extraído de growth_squads_tracking_2026.xlsx) */
+const REAL_SEED = {"Adquisición y Crosselling":{"po":"Ezequiel Marchese","owner":"A. Rodríguez Ramallo","products":{"Préstamos personales":{"kpi":"# Colaciones nuevas","plan":[8340.0,9099.0,10508.0,11803.0,13512.0,12287.0,15336.0,null,null,null,null,null],"monthly":{"Ene":{"acum":5673,"asOfDay":31},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":3410,"asOfDay":23},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Seguros":{"kpi":"# Pólizas nuevas","plan":[150.0,188.0,234.0,293.0,366.0,458.0,572.0,null,null,null,null,null],"monthly":{"Ene":{"acum":124,"asOfDay":31},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":67,"asOfDay":23},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Tarjeta de crédito":{"kpi":"# Tarjetas activadas","plan":[2010.0,2079.0,2218.0,2426.0,2530.0,2842.0,3292.0,null,null,null,null,null],"monthly":{"Ene":{"acum":992,"asOfDay":31},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":461,"asOfDay":23},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Alta cuenta inversiones":{"kpi":"# Altas nuevas","plan":[null,null,null,null,null,null,null,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":31},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Pago de servicios":{"kpi":"# Nuevos usuarios activos","plan":[null,null,null,null,null,null,null,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}}}},"Habitualidad":{"po":"Daniel Pauletich","owner":"Micaela Oviedo","products":{"Medios de pago digitales":{"kpi":"# Transacciones digitales","plan":[310344.0,332727.0,415229.0,350152.0,364016.0,430675.0,316615.0,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":364016,"asOfDay":29},"Jun":{"acum":430675,"asOfDay":30},"Jul":{"acum":316615,"asOfDay":21},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Tienda Bancor":{"kpi":"# Ventas / GMV ($)","plan":[65.0,49.0,272.0,37.0,657.0,70.0,146.0,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":657,"asOfDay":29},"Jun":{"acum":70,"asOfDay":30},"Jul":{"acum":146,"asOfDay":22},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Pago de servicios (frecuencia)":{"kpi":"# Transacciones recurrentes","plan":[417585.0,389965.0,380164.0,389657.0,391419.0,409082.0,323788.0,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":391419,"asOfDay":29},"Jun":{"acum":409082,"asOfDay":30},"Jul":{"acum":323788,"asOfDay":21},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Inversiones (recurrencia)":{"kpi":"# Renovaciones / Constituciones","plan":[174092.0,153699.0,158946.0,151746.0,136246.0,151953.0,106902.0,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":null,"asOfDay":29},"Jun":{"acum":151953,"asOfDay":30},"Jul":{"acum":106902,"asOfDay":21},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Tarjeta de crédito":{"kpi":"# Tarjetas c/Consumo","plan":[366339.0,373753.0,365628.0,363723.0,367755.0,356357.0,48613.0,null,null,null,null,null],"monthly":{"May":{"acum":1601463,"asOfDay":31},"Jun":{"acum":1345545,"asOfDay":30},"Jul":{"acum":35337,"asOfDay":8},"Ago":{"acum":0,"asOfDay":0}}}}},"Bezza Hub":{"po":"Melisa Zozaya","owner":"Berenice Voges","products":{"Bezza Billetera – Altas":{"kpi":"# Altas nuevas","plan":[3528.0,1540.0,1216.0,1426.0,5661.0,25626.0,32907.0,38204.0,67314.0,61989.0,63014.0,65322.0],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Bezza Billetera – Activos":{"kpi":"# Usuarios activos (MAU)","plan":[2457.0,1034.0,664.0,939.0,2757.0,16541.0,28572.0,39427.0,64044.0,76656.0,85900.0,93999.0],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Bezza Pay":{"kpi":"# Comercios activos","plan":[168.0,168.0,181.0,204.0,186.0,180.0,180.0,180.0,180.0,180.0,180.0,180.0],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Bezza Pass":{"kpi":"# Entradas vendidas","plan":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}}}},"Empresas":{"po":"TBD","owner":"TBD","products":{"Altas clientes empresa":{"kpi":"# Nuevas empresas","plan":[null,null,null,null,null,null,null,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}},"Productos colocados":{"kpi":"# Productos colocados","plan":[null,null,null,null,null,null,null,null,null,null,null,null],"monthly":{"Ene":{"acum":0,"asOfDay":0},"Feb":{"acum":0,"asOfDay":0},"Mar":{"acum":0,"asOfDay":0},"Abr":{"acum":0,"asOfDay":0},"May":{"acum":0,"asOfDay":0},"Jun":{"acum":0,"asOfDay":0},"Jul":{"acum":0,"asOfDay":0},"Ago":{"acum":0,"asOfDay":0},"Sep":{"acum":0,"asOfDay":0},"Oct":{"acum":0,"asOfDay":0},"Nov":{"acum":0,"asOfDay":0},"Dic":{"acum":0,"asOfDay":0}}}}}};
+
+/* ---------- Construcción del dataset de trabajo ---------- */
+// Para cada producto: ritmo anual = acumulado real (meses con carga) / objetivo prorrateado (mismos meses)
+function buildWorkingDataset(seed){
+  const dataset = {};
+  Object.keys(seed).forEach(squad=>{
+    const sq = seed[squad];
+    dataset[squad] = { po: sq.po, owner: sq.owner, products: {} };
+    Object.keys(sq.products).forEach(prod=>{
+      const p = sq.products[prod];
+      let yearReal = 0, yearProrated = 0;
+      let lastMonthIdx = -1;
+      const realSeries = Array(12).fill(null);
+      const planSeries = p.plan.slice();
+      MONTHS.forEach((m, mi)=>{
+        const md = p.monthly ? p.monthly[m] : null;
+        if(md && md.asOfDay > 0){
+          realSeries[mi] = md.acum;
+          lastMonthIdx = mi;
+          const target = planSeries[mi];
+          if(target !== null && target !== undefined){
+            const prorated = target * (md.asOfDay / DAYS_IN_MONTH[mi]);
+            yearReal += md.acum;
+            yearProrated += prorated;
+          }
+        }
+      });
+      const ritmo = yearProrated > 0 ? yearReal / yearProrated : null;
+      const lastMonthData = lastMonthIdx>=0 ? (p.monthly[MONTHS[lastMonthIdx]] || null) : null;
+      dataset[squad].products[prod] = {
+        kpi: p.kpi,
+        plan: planSeries,
+        real: realSeries,
+        yearReal, yearProrated, ritmo,
+        lastMonthIdx,
+        lastMonthLabel: lastMonthIdx>=0 ? MONTHS[lastMonthIdx] : null,
+        lastMonthAcum: lastMonthData ? lastMonthData.acum : null,
+        lastMonthAsOfDay: lastMonthData ? lastMonthData.asOfDay : 0,
+        lastMonthTarget: lastMonthIdx>=0 ? planSeries[lastMonthIdx] : null,
+      };
+    });
+  });
+  return dataset;
+}
+
+/* ---------- CSV PARSING (para conectar el Google Sheet real) ---------- */
+function parseCSV(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i=0;i<text.length;i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; } else { inQuotes = false; }
+      } else field += c;
+    } else {
+      if(c === '"') inQuotes = true;
+      else if(c === ','){ row.push(field); field=''; }
+      else if(c === '\n' || c === '\r'){
+        if(field.length || row.length){ row.push(field); rows.push(row); row=[]; field=''; }
+        if(c === '\r' && text[i+1] === '\n') i++;
+      } else field += c;
+    }
+  }
+  if(field.length || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+const SQUAD_NAME_VARIANTS = {
+  'ADQUISICIÓN Y CROSSELLING': 'Adquisición y Crosselling',
+  'HABITUALIDAD': 'Habitualidad',
+  'BEZZA HUB': 'Bezza Hub',
+  'EMPRESAS': 'Empresas'
+};
+
+function norm(s){ return (s||'').toString().replace(/\s+/g,' ').trim(); }
+
+// Parsea la pestaña "Plan Anual"
+function parsePlanAnual(rows){
+  const plan = {};
+  let curSquad = null;
+  for(let r=3; r<rows.length; r++){
+    const row = rows[r]; if(!row) continue;
+    const squadCell = norm(row[0]);
+    const prod = norm(row[1]);
+    const kpi = norm(row[2]);
+    if(squadCell) curSquad = squadCell;
+    if(prod && curSquad){
+      const months = [];
+      for(let i=0;i<12;i++){
+        const v = parseFloat((row[3+i]||'').replace(/[^0-9.-]/g,''));
+        months.push(isNaN(v) ? null : v);
+      }
+      plan[curSquad] = plan[curSquad] || {};
+      plan[curSquad][prod] = {kpi, plan: months};
+    }
+  }
+  return plan;
+}
+
+// Parsea una pestaña mensual (Ene..Dic) siguiendo el mismo patrón que el archivo real
+function parseMonthTab(rows){
+  const result = {};
+  const maxR = rows.length;
+  let r = 0;
+  while(r < maxR){
+    const c0 = rows[r] ? rows[r][0] : '';
+    if(c0 && c0.includes('PO:')){
+      const namePart = c0.split('·')[0].trim().toUpperCase();
+      let squad = namePart;
+      for(const key in SQUAD_NAME_VARIANTS){ if(namePart.includes(key)){ squad = SQUAD_NAME_VARIANTS[key]; break; } }
+      const headerRow = rows[r+1] || [];
+      const prodCols = [];
+      for(let ci=2; ci<headerRow.length; ci++){
+        const h = norm(headerRow[ci]);
+        if(h && h.toUpperCase().startsWith('TOTAL')) break;
+        if(h) prodCols.push([ci, h]);
+      }
+      let rr = r+2;
+      const daily = {}; prodCols.forEach(([ci,name])=>daily[name]=[]);
+      while(rr < maxR){
+        const row = rows[rr] || [];
+        const c0b = norm(row[0]);
+        if(c0b.includes('PO:')) break;
+        const dia = parseFloat(row[0]);
+        if(!isNaN(dia) && row[0] !== ''){
+          prodCols.forEach(([ci,name])=>{
+            const v = parseFloat((row[ci]||'').replace(/[^0-9.-]/g,''));
+            daily[name].push(isNaN(v) ? null : v);
+          });
+          rr++;
+        } else if(norm(row[1]) === 'TOTAL ACUM'){
+          break;
+        } else { rr++; }
+      }
+      const acum = {};
+      while(rr < maxR){
+        const row = rows[rr] || [];
+        if(norm(row[1]) === 'TOTAL ACUM'){
+          prodCols.forEach(([ci,name])=>{
+            const v = parseFloat((row[ci]||'').replace(/[^0-9.-]/g,''));
+            acum[name] = isNaN(v) ? null : v;
+          });
+          rr++; break;
+        }
+        if(norm(row[0]).includes('PO:')) break;
+        rr++;
+      }
+      const asOfDay = {};
+      prodCols.forEach(([ci,name])=>{
+        let last = 0;
+        daily[name].forEach((v,i)=>{ if(v !== null) last = i+1; });
+        asOfDay[name] = last;
+      });
+      result[squad] = { products: prodCols.map(p=>p[1]), acum, asOfDay };
+      r = rr; continue;
+    }
+    r++;
+  }
+  return result;
+}
+
+// Combina Plan Anual + las 12 pestañas mensuales (ya parseadas) en el formato REAL_SEED
+function combineSheetData(planData, monthlyByTab){
+  const seed = {};
+  Object.keys(planData).forEach(squad=>{
+    seed[squad] = { po:'', owner:'', products:{} };
+    const prods = Object.keys(planData[squad]);
+    prods.forEach((prod, idx)=>{
+      const kpi = planData[squad][prod].kpi;
+      const planArr = planData[squad][prod].plan;
+      const monthly = {};
+      MONTHS.forEach(m=>{
+        const block = monthlyByTab[m] ? monthlyByTab[m][squad] : null;
+        if(!block) return;
+        let nameMatch = block.acum && (prod in block.acum) ? prod : (block.products[idx] || null);
+        if(nameMatch && block.acum && (nameMatch in block.acum)){
+          monthly[m] = { acum: block.acum[nameMatch], asOfDay: block.asOfDay[nameMatch] || 0 };
+        }
+      });
+      seed[squad].products[prod] = { kpi, plan: planArr, monthly };
+    });
+  });
+  return seed;
+}
+
+/* ---------- STATE ---------- */
+let DATASET = {};
+let ACTIVE_SEGMENT = null;
+let isDemo = true;
+
+/* ---------- HELPERS ---------- */
+function fmtNum(n){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return n.toLocaleString('es-AR', {maximumFractionDigits:0});
+}
+function pct(n, digits=0){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return (n*100).toFixed(digits) + '%';
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 3400);
+}
+
+/* ---------- STORAGE ----------
+   Usa window.storage (persiste entre sesiones dentro del artifact de Claude.ai)
+   y cae a localStorage si el archivo se abrió suelto en un navegador. */
+async function storageGet(key){
+  try{
+    if(typeof window.storage !== 'undefined' && window.storage){
+      const r = await window.storage.get(key, false);
+      return r ? r.value : null;
+    }
+  }catch(e){}
+  try{ return localStorage.getItem(key); }catch(e){ return null; }
+}
+async function storageSet(key, value){
+  try{
+    if(typeof window.storage !== 'undefined' && window.storage){
+      await window.storage.set(key, value, false);
+      return true;
+    }
+  }catch(e){}
+  try{ localStorage.setItem(key, value); return true; }catch(e){ return false; }
+}
+async function loadConfig(){
+  try{ const v = await storageGet('bancor_growth_config'); return v ? JSON.parse(v) : null; }catch(e){ return null; }
+}
+async function saveConfig(cfg){ await storageSet('bancor_growth_config', JSON.stringify(cfg)); }
+async function loadCache(){
+  try{ const v = await storageGet('bancor_growth_cache'); return v ? JSON.parse(v) : null; }catch(e){ return null; }
+}
+async function saveCache(cacheObj){ await storageSet('bancor_growth_cache', JSON.stringify(cacheObj)); }
+
+/* ---------- FETCH DESDE GOOGLE SHEETS (Plan Anual + Ene..Dic) ---------- */
+function extractSheetId(input){
+  const m = input.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : input.trim();
+}
+async function fetchTabCSV(sheetId, tabName){
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('HTTP ' + res.status + ' en ' + tabName);
+  return await res.text();
+}
+
+async function fetchFromSheet(showToast=true){
+  const cfg = await loadConfig();
+  if(!cfg || !cfg.sheetId){
+    if(showToast) toast('No hay Google Sheet configurado — mostrando datos de ejemplo.');
+    return false;
+  }
+  try{
+    const planCSV = await fetchTabCSV(cfg.sheetId, 'Plan Anual');
+    const planRows = parseCSV(planCSV);
+    const planData = parsePlanAnual(planRows);
+    if(!planData || !Object.keys(planData).length) throw new Error('Plan Anual sin datos reconocibles');
+
+    const monthlyByTab = {};
+    for(const m of MONTHS){
+      try{
+        const csv = await fetchTabCSV(cfg.sheetId, m);
+        monthlyByTab[m] = parseMonthTab(parseCSV(csv));
+      }catch(e){ monthlyByTab[m] = {}; }
+    }
+    const seed = combineSheetData(planData, monthlyByTab);
+    DATASET = buildWorkingDataset(seed);
+    isDemo = false;
+    await saveCache({seed, fetchedAt: new Date().toISOString()});
+    if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
+    renderAll();
+    if(showToast) toast('Sincronizado con Google Sheets ✓');
+    return true;
+  }catch(err){
+    if(showToast) toast('No se pudo leer el Sheet (¿está publicado como CSV?). Mostrando el último dato disponible.');
+    console.error(err);
+    return false;
+  }
+}
+
+/* ---------- INSIGHTS ---------- */
+function computeInsights(){
+  const items = [];
+  const noData = [];
+  Object.keys(DATASET).forEach(squad=>{
+    Object.keys(DATASET[squad].products).forEach(prod=>{
+      const d = DATASET[squad].products[prod];
+      if(d.ritmo === null){
+        noData.push({seg:squad, prod, kpi:d.kpi});
+        return;
+      }
+      if(d.ritmo >= 1.10){
+        items.push({type:'positive', seg:squad, prod, text:`${prod} va ${pct(d.ritmo-1)} por encima del objetivo prorrateado a la fecha (${d.kpi}).`, mag: d.ritmo-1});
+      } else if(d.ritmo <= 0.85){
+        items.push({type:'negative', seg:squad, prod, text:`${prod} está ${pct(1-d.ritmo)} por debajo del ritmo esperado a esta altura del mes (${d.kpi}).`, mag: 1-d.ritmo});
+      }
+    });
+  });
+  items.sort((a,b)=> b.mag - a.mag);
+  return {items: items.slice(0,8), noData};
+}
+
+function renderInsights(){
+  const {items, noData} = computeInsights();
+  const feed = document.getElementById('insights-feed');
+  feed.innerHTML = '';
+
+  items.forEach((it,i)=>{
+    const el = document.createElement('div');
+    el.className = `insight-item ${it.type}`;
+    el.style.animationDelay = (i*0.05)+'s';
+    const chipColor = SQUAD_COLORS[it.seg] || 'var(--teal-500)';
+    el.innerHTML = `<div class="i-tag">${it.type==='positive'?'▲ oportunidad':'▼ atención'}
+      <span class="squad-chip" style="background:${chipColor}22; color:${chipColor}; border:1px solid ${chipColor}55;">${it.seg}</span></div>
+      <div class="i-text">${it.text}</div>`;
+    feed.appendChild(el);
+  });
+
+  noData.forEach((n,i)=>{
+    const el = document.createElement('div');
+    el.className = 'insight-item note';
+    el.style.animationDelay = ((items.length+i)*0.05)+'s';
+    const chipColor = SQUAD_COLORS[n.seg] || 'var(--lavender-ink)';
+    el.innerHTML = `<div class="i-tag">sin carga de datos
+      <span class="squad-chip" style="background:${chipColor}22; color:${chipColor}; border:1px solid ${chipColor}55;">${n.seg}</span></div>
+      <div class="i-text">"${n.prod}" (${n.kpi}) todavía no tiene resultados diarios cargados este año.</div>`;
+    feed.appendChild(el);
+  });
+
+  if(!items.length && !noData.length){
+    feed.innerHTML = '<div class="insight-item"><div class="i-text">Todavía no hay suficientes datos para generar lecturas.</div></div>';
+  }
+}
+
+/* ---------- SPARKLINE SVG ---------- */
+function sparklineSVG(plan, real){
+  const w=220,h=44;
+  const validPlan = plan.filter(v=>v!==null && v!==undefined);
+  const validReal = real.filter(v=>v!==null && v!==undefined);
+  const maxV = Math.max(1, ...validPlan, ...validReal);
+  const scaleY = v => h - (v/maxV)*h*0.92 - 2;
+  const n = plan.length;
+  const stepX = w/(n-1);
+  const pathFor = (arr) => arr.map((v,i)=> (v===null||v===undefined)?null:`${i*stepX},${scaleY(v)}`).filter(Boolean).join(' ');
+  const planPts = pathFor(plan);
+  const realPts = pathFor(real);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polyline points="${planPts}" fill="none" stroke="rgba(244,250,249,0.28)" stroke-width="2" stroke-dasharray="3,3"/>
+    <polyline points="${realPts}" fill="none" stroke="var(--teal-600)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    ${realPts.split(' ').filter(Boolean).map(p=>{const [x,y]=p.split(','); return `<circle cx="${x}" cy="${y}" r="2.3" fill="var(--teal-600)"/>`;}).join('')}
+  </svg>`;
+}
+
+/* ---------- RENDER CARDS ---------- */
+function renderCards(){
+  const grid = document.getElementById('card-grid');
+  grid.innerHTML = '';
+  const segData = (DATASET[ACTIVE_SEGMENT] && DATASET[ACTIVE_SEGMENT].products) || {};
+  Object.keys(segData).forEach((prod,i)=>{
+    const d = segData[prod];
+    let badgeClass = 'warn', badgeText = 'sin datos';
+    if(d.ritmo !== null){
+      badgeText = pct(d.ritmo);
+      badgeClass = d.ritmo >= 1.02 ? 'ok' : (d.ritmo <= 0.90 ? 'bad' : 'warn');
+    }
+    const card = document.createElement('div');
+    card.className = 'product-card';
+    card.style.animation = `fadeUp .5s ease ${i*0.04}s both`;
+    if(d.lastMonthIdx>=0){
+      card.innerHTML = `
+        <div class="card-head">
+          <div class="titles">
+            <div class="p-name">${prod}</div>
+            <div class="p-sub">${d.kpi}</div>
+          </div>
+          <span class="badge ${badgeClass} has-tip tip-right" data-tip="Ritmo = acumulado real de ${prod} en 2026 (sumando los meses con carga) ÷ objetivo prorrateado a los días efectivamente cargados en cada uno de esos meses. 100% = va exactamente al ritmo esperado.">${badgeText}</span>
+        </div>
+        ${sparklineSVG(d.plan, d.real)}
+        <div class="p-figs">
+          <div><span class="has-tip" data-tip="Total acumulado de ${d.kpi.replace('# ','').toLowerCase()} cargado día a día en ${d.lastMonthLabel} 2026, según la pestaña mensual del Sheet.">Acum. ${d.lastMonthLabel}</span><b>${fmtNum(d.lastMonthAcum)}</b></div>
+          <div><span class="has-tip tip-right" data-tip="Meta mensual completa para ${d.lastMonthLabel}, tomada de la pestaña Plan Anual (no de la fila META MES del mes, para evitar arrastrar errores de esa fila).">Meta ${d.lastMonthLabel}</span><b>${fmtNum(d.lastMonthTarget)}</b></div>
+        </div>`;
+    } else {
+      card.innerHTML = `
+        <div class="card-head">
+          <div class="titles">
+            <div class="p-name">${prod}</div>
+            <div class="p-sub">${d.kpi}</div>
+          </div>
+          <span class="badge warn has-tip tip-right" data-tip="Este producto tiene objetivo en Plan Anual pero ningún día cargado todavía en las pestañas mensuales, por lo que no se puede calcular un ritmo.">sin datos</span>
+        </div>
+        ${sparklineSVG(d.plan, d.real)}
+        <div class="p-figs">
+          <div>Sin carga diaria todavía<b>—</b></div>
+        </div>`;
+    }
+    grid.appendChild(card);
+  });
+}
+
+/* ---------- RENDER TABS ---------- */
+function renderTabs(){
+  const tabsEl = document.getElementById('segment-tabs');
+  tabsEl.innerHTML = '';
+  Object.keys(DATASET).forEach(seg=>{
+    const tab = document.createElement('div');
+    tab.className = 'tab' + (seg===ACTIVE_SEGMENT ? ' active' : '');
+    const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
+    tab.innerHTML = `<span class="tab-dot" style="background:${color};"></span>${seg}`;
+    tab.onclick = ()=>{ ACTIVE_SEGMENT = seg; renderTabs(); renderCards(); renderSquadSummary(); };
+    tabsEl.appendChild(tab);
+  });
+}
+
+/* ---------- RENDER SQUAD SUMMARY ---------- */
+function renderSquadSummary(){
+  const el = document.getElementById('squad-summary');
+  const seg = ACTIVE_SEGMENT;
+  if(!seg || !DATASET[seg]){ el.innerHTML=''; return; }
+  const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
+  el.style.borderLeftColor = color;
+  const sq = DATASET[seg];
+  const prods = Object.values(sq.products);
+  const withData = prods.filter(p=>p.ritmo!==null);
+  const avgRitmo = withData.length ? withData.reduce((a,p)=>a+p.ritmo,0)/withData.length : null;
+  const team = [sq.po ? `PO: ${sq.po}` : null, sq.owner ? `Own: ${sq.owner}` : null].filter(Boolean).join(' · ');
+  el.innerHTML = `
+    <div class="sq-objetivo"><b>${seg}</b>${SQUAD_OBJETIVOS[seg] || 'Objetivo del squad a definir.'}${team ? `<br><span style="color:var(--ink-500); font-family:var(--font-mono); font-size:10.5px;">${team}</span>` : ''}</div>
+    <div class="sq-figs">
+      <div><span class="has-tip" data-tip="Productos del squad que tienen Plan Anual definido y ya registran al menos un día de carga en 2026.">Productos con carga</span><b>${withData.length} / ${prods.length}</b></div>
+      <div><span class="has-tip tip-right" data-tip="Promedio simple del ritmo (real ÷ objetivo prorrateado) de los productos del squad que tienen datos cargados.">Ritmo promedio</span><b style="color:${avgRitmo===null?'var(--ink-500)':(avgRitmo>=1?'var(--lime-ink)':'var(--gold-ink)')}">${avgRitmo===null?'sin datos':pct(avgRitmo)}</b></div>
+    </div>`;
+  renderEvolutivo(seg);
+}
+
+/* ---------- EVOLUTIVO MENSUAL (meses cerrados, por squad o por producto) ---------- */
+const EVOLUTIVO_PRODUCT = {}; // recuerda la selección por squad: '__squad__' o nombre de producto
+
+function computeGlobalLastMonthIdx(){
+  let max = -1;
+  Object.values(DATASET).forEach(sq=>{
+    Object.values(sq.products).forEach(p=>{ if(p.lastMonthIdx > max) max = p.lastMonthIdx; });
+  });
+  return max;
+}
+
+function computeEvBars(seg, productFilter){
+  const sq = DATASET[seg];
+  const globalLast = computeGlobalLastMonthIdx();
+  const closedIdx = [];
+  for(let m=0; m<globalLast; m++) closedIdx.push(m);
+  let bars;
+  if(!productFilter || productFilter === '__squad__'){
+    bars = closedIdx.map(mi=>{
+      const prods = Object.values(sq.products).filter(p => p.plan[mi]!==null && p.real[mi]!==null && p.real[mi]!==undefined);
+      if(!prods.length) return {mi, pct:null};
+      const avg = prods.reduce((a,p)=> a + (p.real[mi]/p.plan[mi]), 0) / prods.length;
+      return {mi, pct: avg};
+    });
+  } else {
+    const p = sq.products[productFilter];
+    bars = closedIdx.map(mi=>{
+      if(!p || p.plan[mi]===null || p.plan[mi]===undefined || p.real[mi]===null || p.real[mi]===undefined) return {mi, pct:null};
+      return {mi, pct: p.real[mi]/p.plan[mi]};
+    });
+  }
+  return bars;
+}
+
+function renderEvolutivoBody(seg, productFilter){
+  const body = document.getElementById('ev-body');
+  if(!body) return;
+  const bars = computeEvBars(seg, productFilter);
+  const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
+  const globalLast = computeGlobalLastMonthIdx();
+
+  if(!bars.length){
+    body.innerHTML = `<div class="ev-empty">Todavía no hay meses cerrados para comparar — el primer mes con carga (${globalLast>=0?MONTHS[globalLast]:'—'}) sigue en curso.</div>`;
+    return;
+  }
+  const maxPct = Math.max(1, ...bars.filter(b=>b.pct!==null).map(b=>b.pct));
+  const subject = (!productFilter || productFilter==='__squad__') ? `el promedio de ${seg}` : `"${productFilter}"`;
+  body.innerHTML = `<div class="ev-chart">` + bars.map(b=>{
+    const h = b.pct===null ? 4 : Math.max(6, (b.pct/maxPct)*92);
+    const barColor = b.pct===null ? 'var(--border-strong)' : (b.pct>=1 ? 'var(--lime-fill)' : (b.pct<=0.85 ? 'var(--magenta-fill)' : color));
+    const tip = b.pct===null
+      ? `${MONTHS[b.mi]}: sin datos comparables ese mes (sin plan o sin carga).`
+      : `${MONTHS[b.mi]} cerrado: ${pct(b.pct)} de cumplimiento para ${subject} — acumulado real del mes ÷ meta mensual completa (mes ya terminado, sin prorrateo).`;
+    return `<div class="ev-bar-wrap">
+      <div class="ev-bar-pct">${b.pct===null?'—':pct(b.pct)}</div>
+      <div class="ev-bar has-tip" data-tip="${tip}" style="height:${h}%; background:${barColor};"></div>
+      <div class="ev-bar-label">${MONTHS[b.mi]}</div>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+function renderEvolutivo(seg){
+  const panel = document.getElementById('evolutivo-panel');
+  const sq = DATASET[seg];
+  if(!sq){ panel.innerHTML=''; return; }
+  if(!EVOLUTIVO_PRODUCT[seg]) EVOLUTIVO_PRODUCT[seg] = '__squad__';
+  const productNames = Object.keys(sq.products);
+
+  panel.innerHTML = `
+    <div class="ev-head">
+      <h4>Evolutivo mensual · ${seg}</h4>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <select id="ev-product-select" class="ev-select">
+          <option value="__squad__">Todo el squad (promedio)</option>
+          ${productNames.map(p=>`<option value="${p}" ${EVOLUTIVO_PRODUCT[seg]===p?'selected':''}>${p}</option>`).join('')}
+        </select>
+        <div class="ev-sub has-tip tip-right" data-tip="Solo se muestran meses cerrados (anteriores al mes de referencia en curso). % de cumplimiento = acumulado real del mes ÷ meta mensual completa, ya sin prorrateo porque el mes terminó.">ⓘ meses cerrados</div>
+      </div>
+    </div>
+    <div id="ev-body"></div>`;
+
+  const select = document.getElementById('ev-product-select');
+  select.value = EVOLUTIVO_PRODUCT[seg];
+  select.onchange = (e)=>{ EVOLUTIVO_PRODUCT[seg] = e.target.value; renderEvolutivoBody(seg, e.target.value); };
+  renderEvolutivoBody(seg, EVOLUTIVO_PRODUCT[seg]);
+}
+
+/* ---------- RENDER HERO ---------- */
+function renderHero(){
+  let allProducts = [];
+  Object.keys(DATASET).forEach(seg=>{
+    Object.keys(DATASET[seg].products).forEach(prod=>{
+      allProducts.push({seg, prod, ...DATASET[seg].products[prod]});
+    });
+  });
+  const withData = allProducts.filter(p=>p.ritmo!==null);
+  const overallRitmo = withData.length ? withData.reduce((a,p)=>a+p.ritmo,0)/withData.length : null;
+
+  // ritmo promedio + último mes con datos, por squad
+  const grid = document.getElementById('squad-mini-grid');
+  grid.innerHTML = '';
+  Object.keys(DATASET).forEach(seg=>{
+    const prods = Object.values(DATASET[seg].products);
+    const prodsConDatos = prods.filter(p=>p.ritmo!==null);
+    const avg = prodsConDatos.length ? prodsConDatos.reduce((a,p)=>a+p.ritmo,0)/prodsConDatos.length : null;
+    const lastIdx = Math.max(-1, ...prods.map(p=>p.lastMonthIdx));
+    const fill = SQUAD_FILLS[seg] || 'var(--teal-500)';
+    const card = document.createElement('div');
+    card.className = 'squad-mini-card has-tip' + (seg===ACTIVE_SEGMENT ? ' is-active' : '');
+    card.style.borderTopColor = fill;
+    card.setAttribute('data-tip', `Promedio del ritmo (real ÷ objetivo prorrateado) de los productos de ${seg} que tienen carga. Tocá para ver el detalle del squad.`);
+    card.innerHTML = `
+      <div class="sm-name">${seg}</div>
+      <div class="sm-pct" style="color:${avg===null?'var(--ink-500)':(avg>=1?'var(--lime-ink)':(avg<=0.85?'var(--magenta-ink)':'var(--ink-900)'))}">${avg===null?'—':pct(avg)}</div>
+      <div class="sm-sub">${lastIdx>=0 ? 'datos a '+MONTHS[lastIdx] : 'sin carga aún'}</div>`;
+    card.onclick = ()=>{ ACTIVE_SEGMENT = seg; renderTabs(); renderCards(); renderSquadSummary(); renderHero(); };
+    grid.appendChild(card);
+  });
+
+  // dato destacado: el insight de mayor magnitud entre todos los squads
+  const {items, noData} = computeInsights();
+  const hl = document.getElementById('highlight-card');
+  if(items.length){
+    const top = items[0];
+    const fillColor = SQUAD_FILLS[top.seg] || 'var(--teal-500)';
+    hl.className = 'highlight-card ' + (top.type==='positive' ? 'hl-positive' : 'hl-negative');
+    hl.innerHTML = `
+      <div class="hl-icon">${top.type==='positive' ? '🚀' : '⚠️'}</div>
+      <div class="hl-body">
+        <div class="hl-tag">${top.type==='positive' ? 'Dato destacado · oportunidad' : 'Dato destacado · alerta'}
+          <span class="squad-chip" style="background:${fillColor}22; color:${SQUAD_COLORS[top.seg]||'var(--ink-700)'}; border:1px solid ${fillColor}55;">${top.seg}</span></div>
+        <div class="hl-text">${top.text}</div>
+      </div>`;
+  } else if(noData.length){
+    hl.className = 'highlight-card hl-neutral';
+    hl.innerHTML = `
+      <div class="hl-icon">ⓘ</div>
+      <div class="hl-body">
+        <div class="hl-tag">Dato destacado</div>
+        <div class="hl-text">${noData.length} producto${noData.length>1?'s':''} todavía sin carga de resultados este año — no hay desvíos fuertes que reportar por ahora.</div>
+      </div>`;
+  } else {
+    hl.className = 'highlight-card hl-neutral';
+    hl.innerHTML = `
+      <div class="hl-icon">ⓘ</div>
+      <div class="hl-body">
+        <div class="hl-tag">Dato destacado</div>
+        <div class="hl-text">Todos los productos con carga están dentro del rango esperado (entre 85% y 110% de ritmo).</div>
+      </div>`;
+  }
+
+  const pctInt = overallRitmo===null ? 0 : Math.round(overallRitmo*100);
+  document.getElementById('gauge-pct').textContent = overallRitmo===null ? '—' : pctInt + '%';
+  const circumference = 2*Math.PI*120;
+  const clamped = overallRitmo===null ? 0 : Math.min(overallRitmo, 1.3)/1.3;
+  const offset = circumference - clamped * circumference;
+  requestAnimationFrame(()=>{
+    document.getElementById('gauge-fg').style.strokeDashoffset = offset;
+  });
+}
+
+function renderAll(){
+  if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
+  renderHero();
+  renderTabs();
+  renderSquadSummary();
+  renderCards();
+  renderInsights();
+  document.getElementById('demo-flag').style.display = isDemo ? 'inline-block' : 'none';
+}
+
+/* ---------- CLOCK + AUTO-CHECK ---------- */
+function updateClock(){
+  const now = new Date();
+  document.getElementById('clock-text').textContent = now.toLocaleTimeString('es-AR');
+}
+let lastAutoCheckDate = null;
+async function autoCheckLoop(){
+  const now = new Date();
+  if(now.getHours() >= 20 && lastAutoCheckDate !== now.toDateString()){
+    lastAutoCheckDate = now.toDateString();
+    await fetchFromSheet(true);
+  }
+}
+
+/* ---------- INIT ---------- */
+async function init(){
+  updateClock();
+  setInterval(updateClock, 1000);
+  setInterval(autoCheckLoop, 60000);
+
+  let storageOk = typeof window.storage !== 'undefined' && window.storage !== null;
+  if(!storageOk){
+    try{ localStorage.setItem('__bancor_test__','1'); localStorage.removeItem('__bancor_test__'); storageOk = true; }catch(e){ storageOk = false; }
+  }
+  if(!storageOk){ document.getElementById('storage-warning').style.display = 'block'; }
+
+  DATASET = buildWorkingDataset(REAL_SEED);
+  ACTIVE_SEGMENT = 'Adquisición y Crosselling';
+  isDemo = true;
+  renderAll();
+  document.getElementById('last-sync').textContent = 'datos de ejemplo (extraídos de tu archivo, sin sincronizar)';
+
+  const cfg = await loadConfig();
+  if(cfg && cfg.sheetId){
+    document.getElementById('input-sheet-id').value = cfg.sheetId;
+    const cache = await loadCache();
+    if(cache && cache.seed){
+      DATASET = buildWorkingDataset(cache.seed); isDemo = false; ACTIVE_SEGMENT = Object.keys(DATASET)[0];
+      renderAll();
+      document.getElementById('last-sync').textContent = new Date(cache.fetchedAt).toLocaleString('es-AR');
+    }
+    fetchFromSheet(false);
+  }
+
+  document.getElementById('settings-btn').onclick = ()=> document.getElementById('settings-overlay').classList.add('open');
+  document.getElementById('close-settings-btn').onclick = ()=> document.getElementById('settings-overlay').classList.remove('open');
+  document.getElementById('settings-overlay').onclick = (e)=>{ if(e.target.id==='settings-overlay') e.currentTarget.classList.remove('open'); };
+
+  document.getElementById('save-config-btn').onclick = async ()=>{
+    const raw = document.getElementById('input-sheet-id').value.trim();
+    if(!raw){ toast('Pegá el link o ID del Google Sheet primero.'); return; }
+    const sheetId = extractSheetId(raw);
+    await saveConfig({sheetId});
+    const check = await loadConfig();
+    if(!check || check.sheetId !== sheetId){
+      toast('No se pudo guardar la configuración en este entorno — mirá el aviso del panel.');
+      document.getElementById('storage-warning').style.display = 'block';
+      return;
+    }
+    document.getElementById('settings-overlay').classList.remove('open');
+    toast('Configuración guardada, sincronizando...');
+    await fetchFromSheet(true);
+    document.getElementById('last-sync').textContent = new Date().toLocaleString('es-AR');
+  };
+  document.getElementById('input-sheet-id').addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter') document.getElementById('save-config-btn').click();
+  });
+
+  document.getElementById('demo-config-btn').onclick = async ()=>{
+    await saveConfig(null);
+    DATASET = buildWorkingDataset(REAL_SEED); isDemo = true; ACTIVE_SEGMENT='Adquisición y Crosselling';
+    renderAll();
+    document.getElementById('last-sync').textContent = 'datos de ejemplo (sin sincronizar)';
+    document.getElementById('settings-overlay').classList.remove('open');
+    toast('Volviste a los datos de ejemplo.');
+  };
+
+  document.getElementById('refresh-btn').onclick = async (e)=>{
+    const btn = e.currentTarget;
+    btn.classList.add('loading');
+    await fetchFromSheet(true);
+    document.getElementById('last-sync').textContent = new Date().toLocaleString('es-AR');
+    btn.classList.remove('loading');
+  };
+}
+
+/* ---------- AMBIENT PARTICLE BACKGROUND ---------- */
+function initParticles(){
+  const canvas = document.getElementById('bg-canvas');
+  const ctx = canvas.getContext('2d');
+  let particles = [];
+  function resize(){ canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  resize(); window.addEventListener('resize', resize);
+  const colors = ['#EE632C','#ADEB00','#FFDF00','#CB91FF','#0B8078'];
+  for(let i=0;i<44;i++){
+    particles.push({
+      x: Math.random()*canvas.width, y: Math.random()*canvas.height,
+      r: Math.random()*1.6+0.4, vy: Math.random()*0.18+0.03,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      alpha: Math.random()*0.5+0.15
+    });
+  }
+  function tick(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    particles.forEach(p=>{
+      p.y -= p.vy;
+      if(p.y < -5) p.y = canvas.height+5;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.alpha;
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+initParticles();
+init();
+</script>
+</body>
+</html>
