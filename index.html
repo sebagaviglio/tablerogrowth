@@ -748,13 +748,19 @@ function looksLikeCSV(text){
 }
 
 async function fetchDirect(sheetId, tabName){
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
-  const res = await fetch(url);
+  // El &_cb= evita que el navegador/CDN sirvan una copia en caché de una request anterior.
+  // Ojo: esto NO controla la caché propia de Google en el endpoint gviz — si Google todavía
+  // no regeneró su snapshot tras una edición reciente del Sheet, puede seguir devolviendo
+  // datos algo desactualizados por un rato, más allá de este cache-buster.
+  const cacheBust = Date.now();
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}&_cb=${cacheBust}`;
+  const res = await fetch(url, { cache: 'no-store' });
   if(!res.ok) throw new Error(`HTTP ${res.status} de Google en "${tabName}"`);
   const text = await res.text();
   if(!looksLikeCSV(text)) throw new Error(`"${tabName}" no devolvió CSV — probablemente el Sheet no está publicado como CSV (te devolvió una página de Google en vez de datos).`);
   return text;
 }
+
 
 async function fetchViaOwnProxy(sheetId, tabName){
   // Fallback same-origin: si desplegaste /api/sheet-proxy (ver instrucciones), esto evita el CORS de Google.
