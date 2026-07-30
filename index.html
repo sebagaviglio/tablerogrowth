@@ -446,6 +446,8 @@
       <button class="btn btn-ghost" id="demo-config-btn">Usar datos de ejemplo</button>
     </div>
 
+    <div id="sync-diagnostic" style="display:none; margin-top:16px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; font-family:var(--font-mono); font-size:11px; line-height:1.6; color:var(--ink-700); white-space:pre-wrap;"></div>
+
     <div class="info-box">
       <b>Paso previo en Google Sheets:</b> Archivo → Compartir → Publicar en la web → "Todo el documento" → formato CSV → Publicar. El panel necesita leer cada pestaña (Plan Anual + Ene..Dic) como CSV público.
     </div>
@@ -785,18 +787,26 @@ async function fetchTabCSV(sheetId, tabName){
 }
 
 async function fetchFromSheet(showToast=true){
+  const diagBox = document.getElementById('sync-diagnostic');
+  const diagLines = [];
+  function diag(line){ diagLines.push(line); console.log('[Bancor Growth]', line); }
+  function showDiag(){ if(diagBox){ diagBox.style.display='block'; diagBox.textContent = diagLines.join('\n'); } }
+
   const cfg = await loadConfig();
   if(!cfg || !cfg.sheetId){
     if(showToast) toast('No hay Google Sheet configurado — mostrando datos de ejemplo.');
     return false;
   }
+  diag(`Sincronizando... ${new Date().toLocaleTimeString('es-AR')}`);
+  showDiag();
   try{
     const planCSV = await fetchTabCSV(cfg.sheetId, 'Plan Anual');
     const planRows = parseCSV(planCSV);
     const planData = parsePlanAnual(planRows);
     if(!planData || !Object.keys(planData).length) throw new Error('"Plan Anual" se pudo leer pero no reconocí columnas válidas (¿cambiaron los encabezados?).');
-    console.log('[Bancor Growth] Plan Anual OK — filas CSV:', planRows.length, '— squads encontrados:', Object.keys(planData));
-    Object.keys(planData).forEach(sq=> console.log('  ·', sq, '— productos:', Object.keys(planData[sq])));
+    diag(`Plan Anual OK — ${planRows.length} filas CSV — squads: ${Object.keys(planData).join(', ')}`);
+    Object.keys(planData).forEach(sq=> diag(`  · ${sq}: ${Object.keys(planData[sq]).length} productos`));
+    showDiag();
 
     const monthlyByTab = {};
     for(const m of MONTHS){
@@ -804,11 +814,13 @@ async function fetchFromSheet(showToast=true){
         const csv = await fetchTabCSV(cfg.sheetId, m);
         const parsedMonth = parseMonthTab(parseCSV(csv));
         monthlyByTab[m] = parsedMonth;
-        console.log(`[Bancor Growth] mes ${m} OK — squads con bloque encontrado:`, Object.keys(parsedMonth));
+        const squadsFound = Object.keys(parsedMonth);
+        diag(`${m}: ${squadsFound.length ? squadsFound.join(', ') : 'sin bloques (pestaña vacía o no existe)'}`);
       }catch(e){
         monthlyByTab[m] = {};
-        console.warn(`[Bancor Growth] mes ${m} FALLÓ:`, e.message);
+        diag(`${m}: FALLÓ — ${e.message}`);
       }
+      showDiag();
     }
     const seed = combineSheetData(planData, monthlyByTab);
     DATASET = buildWorkingDataset(seed);
@@ -816,9 +828,13 @@ async function fetchFromSheet(showToast=true){
     await saveCache({seed, fetchedAt: new Date().toISOString()});
     if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
     renderAll();
+    diag(`Listo. Squads en el panel: ${Object.keys(DATASET).join(', ')}`);
+    showDiag();
     if(showToast) toast('Sincronizado con Google Sheets ✓');
     return true;
   }catch(err){
+    diag(`ERROR: ${err.message}`);
+    showDiag();
     console.error('[Bancor Growth] fetch error:', err);
     if(showToast) toast('No se pudo leer "Plan Anual": ' + (err && err.message ? err.message : 'error desconocido') + '. Abrí la consola (F12) para más detalle.');
     return false;
