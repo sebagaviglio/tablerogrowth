@@ -471,6 +471,9 @@
    ============================================================ */
 
 const MONTHS = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+function safeRender(fn, label){
+  try{ fn(); }catch(e){ console.error(`[Bancor Growth] error en ${label||fn.name}:`, e); }
+}
 const DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
 
 const SQUAD_COLORS = {
@@ -737,11 +740,42 @@ function extractSheetId(input){
   const m = input.match(/\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : input.trim();
 }
-async function fetchTabCSV(sheetId, tabName){
+
+function looksLikeCSV(text){
+  const head = text.slice(0, 200).trim();
+  // Si Google devuelve una página de login/HTML en vez del CSV publicado, esto lo detecta.
+  return head.length > 0 && !head.startsWith('<');
+}
+
+async function fetchDirect(sheetId, tabName){
   const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tabName)}`;
   const res = await fetch(url);
-  if(!res.ok) throw new Error('HTTP ' + res.status + ' en ' + tabName);
-  return await res.text();
+  if(!res.ok) throw new Error(`HTTP ${res.status} de Google en "${tabName}"`);
+  const text = await res.text();
+  if(!looksLikeCSV(text)) throw new Error(`"${tabName}" no devolvió CSV — probablemente el Sheet no está publicado como CSV (te devolvió una página de Google en vez de datos).`);
+  return text;
+}
+
+async function fetchViaOwnProxy(sheetId, tabName){
+  // Fallback same-origin: si desplegaste /api/sheet-proxy (ver instrucciones), esto evita el CORS de Google.
+  const res = await fetch(`/api/sheet-proxy?sheetId=${encodeURIComponent(sheetId)}&tab=${encodeURIComponent(tabName)}`);
+  if(!res.ok) throw new Error(`El proxy propio respondió ${res.status} en "${tabName}"`);
+  const text = await res.text();
+  if(!looksLikeCSV(text)) throw new Error(`El proxy propio no devolvió CSV en "${tabName}".`);
+  return text;
+}
+
+async function fetchTabCSV(sheetId, tabName){
+  try{
+    return await fetchDirect(sheetId, tabName);
+  }catch(directErr){
+    try{
+      return await fetchViaOwnProxy(sheetId, tabName);
+    }catch(proxyErr){
+      // Si ninguno de los dos funcionó, propaga el error del fetch directo (suele ser el más informativo: CORS, 404, HTML en vez de CSV).
+      throw directErr;
+    }
+  }
 }
 
 async function fetchFromSheet(showToast=true){
@@ -754,7 +788,7 @@ async function fetchFromSheet(showToast=true){
     const planCSV = await fetchTabCSV(cfg.sheetId, 'Plan Anual');
     const planRows = parseCSV(planCSV);
     const planData = parsePlanAnual(planRows);
-    if(!planData || !Object.keys(planData).length) throw new Error('Plan Anual sin datos reconocibles');
+    if(!planData || !Object.keys(planData).length) throw new Error('"Plan Anual" se pudo leer pero no reconocí columnas válidas (¿cambiaron los encabezados?).');
 
     const monthlyByTab = {};
     for(const m of MONTHS){
@@ -772,8 +806,8 @@ async function fetchFromSheet(showToast=true){
     if(showToast) toast('Sincronizado con Google Sheets ✓');
     return true;
   }catch(err){
-    if(showToast) toast('No se pudo leer el Sheet (¿está publicado como CSV?). Mostrando el último dato disponible.');
-    console.error(err);
+    console.error('[Bancor Growth] fetch error:', err);
+    if(showToast) toast('No se pudo leer "Plan Anual": ' + (err && err.message ? err.message : 'error desconocido') + '. Abrí la consola (F12) para más detalle.');
     return false;
   }
 }
@@ -857,7 +891,9 @@ function renderCards(){
   grid.innerHTML = '';
   const segData = (DATASET[ACTIVE_SEGMENT] && DATASET[ACTIVE_SEGMENT].products) || {};
   Object.keys(segData).forEach((prod,i)=>{
+    try{
     const d = segData[prod];
+    const kpiSafe = d.kpi || '';
     let badgeClass = 'warn', badgeText = 'sin datos';
     if(d.ritmo !== null){
       badgeText = pct(d.ritmo);
@@ -871,13 +907,13 @@ function renderCards(){
         <div class="card-head">
           <div class="titles">
             <div class="p-name">${prod}</div>
-            <div class="p-sub">${d.kpi}</div>
+            <div class="p-sub">${kpiSafe}</div>
           </div>
           <span class="badge ${badgeClass} has-tip tip-right" data-tip="Ritmo = acumulado real de ${prod} en 2026 (sumando los meses con carga) ÷ objetivo prorrateado a los días efectivamente cargados en cada uno de esos meses. 100% = va exactamente al ritmo esperado.">${badgeText}</span>
         </div>
         ${sparklineSVG(d.plan, d.real)}
         <div class="p-figs">
-          <div><span class="has-tip" data-tip="Total acumulado de ${d.kpi.replace('# ','').toLowerCase()} cargado día a día en ${d.lastMonthLabel} 2026, según la pestaña mensual del Sheet.">Acum. ${d.lastMonthLabel}</span><b>${fmtNum(d.lastMonthAcum)}</b></div>
+          <div><span class="has-tip" data-tip="Total acumulado de ${kpiSafe.replace('# ','').toLowerCase()} cargado día a día en ${d.lastMonthLabel} 2026, según la pestaña mensual del Sheet.">Acum. ${d.lastMonthLabel}</span><b>${fmtNum(d.lastMonthAcum)}</b></div>
           <div><span class="has-tip tip-right" data-tip="Meta mensual completa para ${d.lastMonthLabel}, tomada de la pestaña Plan Anual (no de la fila META MES del mes, para evitar arrastrar errores de esa fila).">Meta ${d.lastMonthLabel}</span><b>${fmtNum(d.lastMonthTarget)}</b></div>
         </div>`;
     } else {
@@ -885,7 +921,7 @@ function renderCards(){
         <div class="card-head">
           <div class="titles">
             <div class="p-name">${prod}</div>
-            <div class="p-sub">${d.kpi}</div>
+            <div class="p-sub">${kpiSafe}</div>
           </div>
           <span class="badge warn has-tip tip-right" data-tip="Este producto tiene objetivo en Plan Anual pero ningún día cargado todavía en las pestañas mensuales, por lo que no se puede calcular un ritmo.">sin datos</span>
         </div>
@@ -895,6 +931,13 @@ function renderCards(){
         </div>`;
     }
     grid.appendChild(card);
+    }catch(e){
+      console.error('[Bancor Growth] error renderizando tarjeta de', prod, e);
+      const errCard = document.createElement('div');
+      errCard.className = 'product-card';
+      errCard.innerHTML = `<div class="p-name">${prod}</div><div class="p-sub" style="color:var(--magenta-ink);">Error al mostrar este producto — ver consola (F12)</div>`;
+      grid.appendChild(errCard);
+    }
   });
 }
 
@@ -907,7 +950,7 @@ function renderTabs(){
     tab.className = 'tab' + (seg===ACTIVE_SEGMENT ? ' active' : '');
     const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
     tab.innerHTML = `<span class="tab-dot" style="background:${color};"></span>${seg}`;
-    tab.onclick = ()=>{ ACTIVE_SEGMENT = seg; renderTabs(); renderCards(); renderSquadSummary(); };
+    tab.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); };
     tabsEl.appendChild(tab);
   });
 }
@@ -1048,7 +1091,7 @@ function renderHero(){
       <div class="sm-name">${seg}</div>
       <div class="sm-pct" style="color:${avg===null?'var(--ink-500)':(avg>=1?'var(--lime-ink)':(avg<=0.85?'var(--magenta-ink)':'var(--ink-900)'))}">${avg===null?'—':pct(avg)}</div>
       <div class="sm-sub">${lastIdx>=0 ? 'datos a '+MONTHS[lastIdx] : 'sin carga aún'}</div>`;
-    card.onclick = ()=>{ ACTIVE_SEGMENT = seg; renderTabs(); renderCards(); renderSquadSummary(); renderHero(); };
+    card.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderHero); };
     grid.appendChild(card);
   });
 
@@ -1096,11 +1139,13 @@ function renderHero(){
 
 function renderAll(){
   if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
-  renderHero();
-  renderTabs();
-  renderSquadSummary();
-  renderCards();
-  renderInsights();
+  const steps = [
+    ['hero', renderHero], ['tabs', renderTabs], ['resumen de squad', renderSquadSummary],
+    ['tarjetas', renderCards], ['insights', renderInsights]
+  ];
+  steps.forEach(([name, fn])=>{
+    try{ fn(); }catch(e){ console.error(`[Bancor Growth] error en ${name}:`, e); }
+  });
   document.getElementById('demo-flag').style.display = isDemo ? 'inline-block' : 'none';
 }
 
