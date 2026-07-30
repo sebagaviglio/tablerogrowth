@@ -789,13 +789,20 @@ async function fetchFromSheet(showToast=true){
     const planRows = parseCSV(planCSV);
     const planData = parsePlanAnual(planRows);
     if(!planData || !Object.keys(planData).length) throw new Error('"Plan Anual" se pudo leer pero no reconocí columnas válidas (¿cambiaron los encabezados?).');
+    console.log('[Bancor Growth] Plan Anual OK — filas CSV:', planRows.length, '— squads encontrados:', Object.keys(planData));
+    Object.keys(planData).forEach(sq=> console.log('  ·', sq, '— productos:', Object.keys(planData[sq])));
 
     const monthlyByTab = {};
     for(const m of MONTHS){
       try{
         const csv = await fetchTabCSV(cfg.sheetId, m);
-        monthlyByTab[m] = parseMonthTab(parseCSV(csv));
-      }catch(e){ monthlyByTab[m] = {}; }
+        const parsedMonth = parseMonthTab(parseCSV(csv));
+        monthlyByTab[m] = parsedMonth;
+        console.log(`[Bancor Growth] mes ${m} OK — squads con bloque encontrado:`, Object.keys(parsedMonth));
+      }catch(e){
+        monthlyByTab[m] = {};
+        console.warn(`[Bancor Growth] mes ${m} FALLÓ:`, e.message);
+      }
     }
     const seed = combineSheetData(planData, monthlyByTab);
     DATASET = buildWorkingDataset(seed);
