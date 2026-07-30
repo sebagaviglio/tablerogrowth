@@ -1000,11 +1000,27 @@ function computeGlobalLastMonthIdx(){
   return max;
 }
 
+// Primer mes en el que CUALQUIER producto de CUALQUIER squad tiene carga real —
+// evita mostrar de arranque meses "sin datos" cuando la medición empezó a mitad de año
+// (por ejemplo, si se borraron o nunca existieron las pestañas de meses anteriores).
+function computeFirstTrackedMonthIdx(){
+  let min = null;
+  Object.values(DATASET).forEach(sq=>{
+    Object.values(sq.products).forEach(p=>{
+      p.real.forEach((v, mi)=>{
+        if(v !== null && v !== undefined){ if(min === null || mi < min) min = mi; }
+      });
+    });
+  });
+  return min === null ? 0 : min;
+}
+
 function computeEvBars(seg, productFilter){
   const sq = DATASET[seg];
   const globalLast = computeGlobalLastMonthIdx();
+  const firstTracked = computeFirstTrackedMonthIdx();
   const closedIdx = [];
-  for(let m=0; m<globalLast; m++) closedIdx.push(m);
+  for(let m=firstTracked; m<globalLast; m++) closedIdx.push(m);
   let bars;
   if(!productFilter || productFilter === '__squad__'){
     bars = closedIdx.map(mi=>{
