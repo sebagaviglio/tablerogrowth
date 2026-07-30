@@ -441,6 +441,22 @@
       <label>URL o ID del Google Sheet</label>
       <input id="input-sheet-id" placeholder="https://docs.google.com/spreadsheets/d/1AbC.../edit">
     </div>
+
+    <div class="info-box" style="background:rgba(92,138,0,0.06); border-color:rgba(92,138,0,0.28);">
+      <b style="color:var(--lime-ink);">Recomendado si el CSV te da datos viejos:</b> el endpoint de Google que lee el CSV a veces queda cacheado y no se actualiza. Un Apps Script lee la hoja en vivo, sin ese problema. Es no-destructivo: no modifica ni duplica el documento oficial, es solo una extensión.
+      <div style="margin-top:8px; font-size:11px;">
+        1. En el Sheet: <b>Extensiones → Apps Script</b><br>
+        2. Borrá el código de ejemplo y pegá el que te dejé abajo (con tu Sheet ID)<br>
+        3. <b>Implementar → Nueva implementación → Aplicación web</b><br>
+        4. "Ejecutar como": Yo · "Quién tiene acceso": Cualquier usuario<br>
+        5. Copiá la URL que te da (termina en <code>/exec</code>) y pegala acá abajo
+      </div>
+    </div>
+    <div class="field">
+      <label>URL del Apps Script (opcional, recomendado)</label>
+      <input id="input-apps-script" placeholder="https://script.google.com/macros/s/AKfycb.../exec">
+    </div>
+
     <div class="btn-row">
       <button class="btn btn-primary" id="save-config-btn">Guardar y sincronizar</button>
       <button class="btn btn-ghost" id="demo-config-btn">Usar datos de ejemplo</button>
@@ -773,7 +789,22 @@ async function fetchViaOwnProxy(sheetId, tabName){
   return text;
 }
 
-async function fetchTabCSV(sheetId, tabName){
+async function fetchViaAppsScript(appsScriptUrl, tabName){
+  // Lee la hoja en vivo vía SpreadsheetApp — sin ningún caché de exportación de por medio.
+  const sep = appsScriptUrl.includes('?') ? '&' : '?';
+  const url = `${appsScriptUrl}${sep}tab=${encodeURIComponent(tabName)}&_cb=${Date.now()}`;
+  const res = await fetch(url, { cache: 'no-store' });
+  if(!res.ok) throw new Error(`El Apps Script respondió ${res.status} en "${tabName}"`);
+  const text = await res.text();
+  if(text.startsWith('ERROR:')) throw new Error(text);
+  if(!looksLikeCSV(text)) throw new Error(`El Apps Script no devolvió CSV en "${tabName}".`);
+  return text;
+}
+
+async function fetchTabCSV(sheetId, tabName, appsScriptUrl){
+  if(appsScriptUrl){
+    return await fetchViaAppsScript(appsScriptUrl, tabName);
+  }
   try{
     return await fetchDirect(sheetId, tabName);
   }catch(directErr){
@@ -793,14 +824,14 @@ async function fetchFromSheet(showToast=true){
   function showDiag(){ if(diagBox){ diagBox.style.display='block'; diagBox.textContent = diagLines.join('\n'); } }
 
   const cfg = await loadConfig();
-  if(!cfg || !cfg.sheetId){
+  if(!cfg || (!cfg.sheetId && !cfg.appsScriptUrl)){
     if(showToast) toast('No hay Google Sheet configurado — mostrando datos de ejemplo.');
     return false;
   }
   diag(`Sincronizando... ${new Date().toLocaleTimeString('es-AR')}`);
   showDiag();
   try{
-    const planCSV = await fetchTabCSV(cfg.sheetId, 'Plan Anual');
+    const planCSV = await fetchTabCSV(cfg.sheetId, 'Plan Anual', cfg.appsScriptUrl);
     const planRows = parseCSV(planCSV);
     const planData = parsePlanAnual(planRows);
     if(!planData || !Object.keys(planData).length) throw new Error('"Plan Anual" se pudo leer pero no reconocí columnas válidas (¿cambiaron los encabezados?).');
@@ -811,7 +842,7 @@ async function fetchFromSheet(showToast=true){
     const monthlyByTab = {};
     for(const m of MONTHS){
       try{
-        const csv = await fetchTabCSV(cfg.sheetId, m);
+        const csv = await fetchTabCSV(cfg.sheetId, m, cfg.appsScriptUrl);
         const parsedMonth = parseMonthTab(parseCSV(csv));
         monthlyByTab[m] = parsedMonth;
         const squadsFound = Object.keys(parsedMonth);
@@ -1227,8 +1258,9 @@ async function init(){
   document.getElementById('last-sync').textContent = 'datos de ejemplo (extraídos de tu archivo, sin sincronizar)';
 
   const cfg = await loadConfig();
-  if(cfg && cfg.sheetId){
-    document.getElementById('input-sheet-id').value = cfg.sheetId;
+  if(cfg && (cfg.sheetId || cfg.appsScriptUrl)){
+    if(cfg.sheetId) document.getElementById('input-sheet-id').value = cfg.sheetId;
+    if(cfg.appsScriptUrl) document.getElementById('input-apps-script').value = cfg.appsScriptUrl;
     const cache = await loadCache();
     if(cache && cache.seed){
       DATASET = buildWorkingDataset(cache.seed); isDemo = false; ACTIVE_SEGMENT = Object.keys(DATASET)[0];
@@ -1244,11 +1276,12 @@ async function init(){
 
   document.getElementById('save-config-btn').onclick = async ()=>{
     const raw = document.getElementById('input-sheet-id').value.trim();
-    if(!raw){ toast('Pegá el link o ID del Google Sheet primero.'); return; }
-    const sheetId = extractSheetId(raw);
-    await saveConfig({sheetId});
+    const appsScriptUrl = document.getElementById('input-apps-script').value.trim();
+    if(!raw && !appsScriptUrl){ toast('Pegá el link/ID del Sheet o la URL del Apps Script.'); return; }
+    const sheetId = raw ? extractSheetId(raw) : null;
+    await saveConfig({sheetId, appsScriptUrl: appsScriptUrl || null});
     const check = await loadConfig();
-    if(!check || check.sheetId !== sheetId){
+    if(!check || (check.sheetId !== sheetId || check.appsScriptUrl !== (appsScriptUrl||null))){
       toast('No se pudo guardar la configuración en este entorno — mirá el aviso del panel.');
       document.getElementById('storage-warning').style.display = 'block';
       return;
