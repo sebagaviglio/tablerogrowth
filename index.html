@@ -760,8 +760,27 @@ async function storageSet(key, value){
   }catch(e){}
   try{ localStorage.setItem(key, value); return true; }catch(e){ return false; }
 }
+// Conexión real precargada — así cualquiera que abra el link ve los datos reales
+// sin tener que pegar el ID del Sheet ni la URL del Apps Script.
+// Si en algún momento cambia el Sheet o el Apps Script, actualizar acá.
+const DEFAULT_CONFIG = {
+  sheetId: '1rR6gNKT-zD8HMKv8F_GJlWl2BqPSsgWhSNFi3k6JxrA',
+  appsScriptUrl: 'https://script.google.com/macros/s/AKfycbw5wShBfHR3ZRicU12azFD3DjcmSBUf97o-1Sya3eUBVSOf5L7zU5QgDWyjH9FNdUcM/exec'
+};
+
 async function loadConfig(){
-  try{ const v = await storageGet('bancor_growth_config'); return v ? JSON.parse(v) : null; }catch(e){ return null; }
+  try{
+    const v = await storageGet('bancor_growth_config');
+    if(v){
+      const parsed = JSON.parse(v);
+      // Si alguien tocó "Usar datos de ejemplo" a propósito, respetamos esa elección
+      // y NO caemos al default — de lo contrario nunca podrían volver a ver la demo.
+      if(parsed && parsed.demoMode) return parsed;
+      if(parsed && (parsed.sheetId || parsed.appsScriptUrl)) return parsed;
+    }
+  }catch(e){}
+  // Nada guardado todavía (primera visita de este navegador) → usar la conexión real por default.
+  return DEFAULT_CONFIG;
 }
 async function saveConfig(cfg){ await storageSet('bancor_growth_config', JSON.stringify(cfg)); }
 async function loadCache(){
@@ -873,6 +892,10 @@ async function fetchFromSheet(showToast=true){
   function showDiag(){ if(diagBox){ diagBox.style.display='block'; diagBox.textContent = diagLines.join('\n'); } }
 
   const cfg = await loadConfig();
+  if(cfg && cfg.demoMode){
+    if(showToast) toast('Estás en modo de datos de ejemplo.');
+    return false;
+  }
   if(!cfg || (!cfg.sheetId && !cfg.appsScriptUrl)){
     if(showToast) toast('No hay Google Sheet configurado — mostrando datos de ejemplo.');
     return false;
@@ -1456,7 +1479,9 @@ async function init(){
   });
 
   document.getElementById('demo-config-btn').onclick = async ()=>{
-    await saveConfig(null);
+    await saveConfig({demoMode: true});
+    document.getElementById('input-sheet-id').value = '';
+    document.getElementById('input-apps-script').value = '';
     DATASET = buildWorkingDataset(REAL_SEED); isDemo = true; ACTIVE_SEGMENT='Adquisición y Crosselling';
     renderAll();
     document.getElementById('last-sync').textContent = 'datos de ejemplo (sin sincronizar)';
