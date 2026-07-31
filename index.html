@@ -829,6 +829,7 @@ async function fetchFromSheet(showToast=true){
     return false;
   }
   diag(`Sincronizando... ${new Date().toLocaleTimeString('es-AR')}`);
+  diag(`Config usada → sheetId: ${cfg.sheetId || '(ninguno)'} | appsScriptUrl: ${cfg.appsScriptUrl || '(ninguno)'}`);
   showDiag();
   try{
     const planCSV = await fetchTabCSV(cfg.sheetId, 'Plan Anual', cfg.appsScriptUrl);
