@@ -270,6 +270,12 @@
     border:1px solid var(--border-strong); border-radius:8px; padding:6px 10px; cursor:pointer; max-width:220px;
   }
   .ev-select:focus{ outline:none; border-color: var(--teal-500); }
+  .ev-toggle{ display:flex; background:var(--surface-2); border:1px solid var(--border); border-radius:9px; padding:3px; gap:2px; }
+  .ev-toggle-btn{
+    font-family: var(--font-mono); font-size:10.5px; padding:6px 11px; border-radius:7px; border:none;
+    background:transparent; color:var(--ink-500); cursor:pointer; white-space:nowrap; transition:all .15s ease;
+  }
+  .ev-toggle-btn.active{ background:var(--surface); color:var(--ink-900); font-weight:600; box-shadow:var(--shadow-sm); }
   .ev-chart{ display:flex; align-items:flex-end; gap:8px; height:120px; padding-top:20px; }
   .ev-bar-wrap{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; gap:6px; }
   .ev-bar{ width:100%; max-width:36px; border-radius:6px 6px 3px 3px; transition: height .8s cubic-bezier(.16,1,.3,1); position:relative; min-height:3px; }
@@ -544,10 +550,16 @@ function buildWorkingDataset(seed){
       });
       const ritmo = yearProrated > 0 ? yearReal / yearProrated : null;
       const lastMonthData = lastMonthIdx>=0 ? (p.monthly[MONTHS[lastMonthIdx]] || null) : null;
+      const dailyByMonth = {};
+      MONTHS.forEach(m=>{
+        const md = p.monthly ? p.monthly[m] : null;
+        if(md && md.daily) dailyByMonth[m] = md.daily;
+      });
       dataset[squad].products[prod] = {
         kpi: p.kpi,
         plan: planSeries,
         real: realSeries,
+        dailyByMonth,
         yearReal, yearProrated, ritmo,
         lastMonthIdx,
         lastMonthLabel: lastMonthIdx>=0 ? MONTHS[lastMonthIdx] : null,
@@ -669,7 +681,7 @@ function parseMonthTab(rows){
         daily[name].forEach((v,i)=>{ if(v !== null) last = i+1; });
         asOfDay[name] = last;
       });
-      result[squad] = { products: prodCols.map(p=>p[1]), acum, asOfDay };
+      result[squad] = { products: prodCols.map(p=>p[1]), acum, asOfDay, daily };
       r = rr; continue;
     }
     r++;
@@ -692,7 +704,11 @@ function combineSheetData(planData, monthlyByTab){
         if(!block) return;
         let nameMatch = block.acum && (prod in block.acum) ? prod : (block.products[idx] || null);
         if(nameMatch && block.acum && (nameMatch in block.acum)){
-          monthly[m] = { acum: block.acum[nameMatch], asOfDay: block.asOfDay[nameMatch] || 0 };
+          monthly[m] = {
+            acum: block.acum[nameMatch],
+            asOfDay: block.asOfDay[nameMatch] || 0,
+            daily: (block.daily && block.daily[nameMatch]) ? block.daily[nameMatch] : null
+          };
         }
       });
       seed[squad].products[prod] = { kpi, plan: planArr, monthly };
@@ -1120,7 +1136,107 @@ function computeEvBars(seg, productFilter){
   return bars;
 }
 
+/* ---------- EVOLUTIVO DIARIO (mes en curso, brecha objetivo vs cumplido) ---------- */
+function computeDailySeries(seg, productFilter){
+  const sq = DATASET[seg];
+  const monthIdx = computeGlobalLastMonthIdx();
+  if(monthIdx < 0) return null;
+  const monthLabel = MONTHS[monthIdx];
+  const daysInMonthCount = DAYS_IN_MONTH[monthIdx];
+
+  let products;
+  if(!productFilter || productFilter === '__squad__'){
+    products = Object.values(sq.products).filter(p => p.dailyByMonth[monthLabel] && p.plan[monthIdx] !== null && p.plan[monthIdx] !== undefined && p.plan[monthIdx] > 0);
+  } else {
+    const p = sq.products[productFilter];
+    products = (p && p.dailyByMonth[monthLabel] && p.plan[monthIdx]) ? [p] : [];
+  }
+  if(!products.length) return { monthIdx, monthLabel, daysInMonthCount, points: [], asOfDay: 0 };
+
+  // Pre-pasada: encontrar el último día con carga real ANTES de armar los puntos,
+  // para que un día intermedio sin dato (ej. un fin de semana) no corte la línea de golpe.
+  let asOfDay = 0;
+  products.forEach(p=>{
+    const arr = p.dailyByMonth[monthLabel];
+    arr.forEach((v,i)=>{ if(v !== null && v !== undefined && (i+1) > asOfDay) asOfDay = i+1; });
+  });
+
+  const runningSums = products.map(()=>0);
+  const points = [];
+  for(let d=1; d<=daysInMonthCount; d++){
+    const realPcts = [];
+    products.forEach((p,i)=>{
+      const v = p.dailyByMonth[monthLabel][d-1];
+      if(v !== null && v !== undefined){ runningSums[i] += v; }
+      realPcts.push(runningSums[i] / p.plan[monthIdx] * 100);
+    });
+    const objPct = (d / daysInMonthCount) * 100;
+    const realPct = realPcts.reduce((a,b)=>a+b,0) / realPcts.length;
+    points.push({ day: d, objPct, realPct: d<=asOfDay ? realPct : null });
+  }
+  return { monthIdx, monthLabel, daysInMonthCount, points, asOfDay };
+}
+
+function dailyChartSVG(series, color){
+  const w = 640, h = 200, padL = 34, padR = 10, padT = 14, padB = 24;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const maxY = Math.max(105, ...series.points.map(p=> Math.max(p.objPct, p.realPct||0)));
+  const x = (day)=> padL + (day-1)/(series.daysInMonthCount-1) * innerW;
+  const y = (val)=> padT + innerH - (val/maxY)*innerH;
+
+  const objPts = series.points.map(p=> `${x(p.day)},${y(p.objPct)}`).join(' ');
+  const realPtsArr = series.points.filter(p=>p.realPct!==null);
+  const realPts = realPtsArr.map(p=> `${x(p.day)},${y(p.realPct)}`).join(' ');
+
+  // área de brecha: entre la línea real y la línea objetivo, solo hasta el último día con carga
+  const gapUp = realPtsArr.map(p=> `${x(p.day)},${y(p.realPct)}`);
+  const gapDown = realPtsArr.slice().reverse().map(p=> `${x(p.day)},${y(p.objPct)}`);
+  const gapPoly = [...gapUp, ...gapDown].join(' ');
+  const lastPoint = realPtsArr[realPtsArr.length-1];
+  const gapNow = lastPoint ? (lastPoint.realPct - lastPoint.objPct) : 0;
+  const gapColor = gapNow >= 0 ? 'var(--lime-fill)' : 'var(--magenta-fill)';
+
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; max-height:220px;">
+    <line x1="${padL}" y1="${y(100)}" x2="${w-padR}" y2="${y(100)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2,3"/>
+    ${gapPoly.length ? `<polygon points="${gapPoly}" fill="${gapColor}" opacity="0.16"/>` : ''}
+    <polyline points="${objPts}" fill="none" stroke="var(--ink-300)" stroke-width="2" stroke-dasharray="4,3"/>
+    <polyline points="${realPts}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    ${lastPoint ? `<circle cx="${x(lastPoint.day)}" cy="${y(lastPoint.realPct)}" r="4" fill="${color}"/>` : ''}
+  </svg>`;
+}
+
+function renderDailyBody(seg, productFilter){
+  const body = document.getElementById('ev-body');
+  if(!body) return;
+  const series = computeDailySeries(seg, productFilter);
+  const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
+  const subject = (!productFilter || productFilter==='__squad__') ? `el promedio de ${seg}` : `"${productFilter}"`;
+
+  if(!series || !series.points.length || series.asOfDay===0){
+    body.innerHTML = `<div class="ev-empty">Todavía no hay carga diaria para ${subject} en el mes en curso.</div>`;
+    return;
+  }
+  const last = series.points[series.asOfDay-1];
+  const gap = last.realPct - last.objPct;
+  const gapTxt = gap >= 0
+    ? `▲ ${subject} va ${Math.abs(gap).toFixed(1)} pts por encima del objetivo a la fecha (día ${series.asOfDay} de ${series.daysInMonthCount} de ${series.monthLabel}).`
+    : `▼ ${subject} va ${Math.abs(gap).toFixed(1)} pts por debajo del objetivo a la fecha (día ${series.asOfDay} de ${series.daysInMonthCount} de ${series.monthLabel}).`;
+
+  body.innerHTML = `
+    <div class="has-tip" data-tip="Línea punteada = objetivo (avance lineal esperado, 0% a 100% a lo largo del mes). Línea sólida = cumplido acumulado real hasta hoy. El área sombreada es la brecha entre ambas.">
+      ${dailyChartSVG(series, color)}
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
+      <div style="font-size:12.5px; color:${gap>=0?'var(--lime-ink)':'var(--magenta-ink)'};">${gapTxt}</div>
+      <div style="font-family:var(--font-mono); font-size:10.5px; color:var(--ink-500); display:flex; gap:14px;">
+        <span><span style="display:inline-block; width:10px; height:2px; background:var(--ink-300); vertical-align:middle; margin-right:4px;"></span>Objetivo</span>
+        <span><span style="display:inline-block; width:10px; height:2px; background:${color}; vertical-align:middle; margin-right:4px;"></span>Cumplido</span>
+      </div>
+    </div>`;
+}
+
 function renderEvolutivoBody(seg, productFilter){
+  if(EVOLUTIVO_VIEW[seg] === 'diario'){ renderDailyBody(seg, productFilter); return; }
   const body = document.getElementById('ev-body');
   if(!body) return;
   const bars = computeEvBars(seg, productFilter);
@@ -1147,25 +1263,35 @@ function renderEvolutivoBody(seg, productFilter){
   }).join('') + `</div>`;
 }
 
+const EVOLUTIVO_VIEW = {};
 function renderEvolutivo(seg){
   const panel = document.getElementById('evolutivo-panel');
   const sq = DATASET[seg];
   if(!sq){ panel.innerHTML=''; return; }
   if(!EVOLUTIVO_PRODUCT[seg]) EVOLUTIVO_PRODUCT[seg] = '__squad__';
+  if(!EVOLUTIVO_VIEW[seg]) EVOLUTIVO_VIEW[seg] = 'diario';
   const productNames = Object.keys(sq.products);
+  const view = EVOLUTIVO_VIEW[seg];
 
   panel.innerHTML = `
     <div class="ev-head">
-      <h4>Evolutivo mensual · ${seg}</h4>
+      <h4>Evolutivo · ${seg}</h4>
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <div class="ev-toggle">
+          <button class="ev-toggle-btn ${view==='diario'?'active':''}" data-view="diario">Diario (mes en curso)</button>
+          <button class="ev-toggle-btn ${view==='mensual'?'active':''}" data-view="mensual">Mensual (cerrados)</button>
+        </div>
         <select id="ev-product-select" class="ev-select">
           <option value="__squad__">Todo el squad (promedio)</option>
           ${productNames.map(p=>`<option value="${p}" ${EVOLUTIVO_PRODUCT[seg]===p?'selected':''}>${p}</option>`).join('')}
         </select>
-        <div class="ev-sub has-tip tip-right" data-tip="Solo se muestran meses cerrados (anteriores al mes de referencia en curso). % de cumplimiento = acumulado real del mes ÷ meta mensual completa, ya sin prorrateo porque el mes terminó.">ⓘ meses cerrados</div>
       </div>
     </div>
     <div id="ev-body"></div>`;
+
+  panel.querySelectorAll('.ev-toggle-btn').forEach(btn=>{
+    btn.onclick = ()=>{ EVOLUTIVO_VIEW[seg] = btn.dataset.view; renderEvolutivo(seg); };
+  });
 
   const select = document.getElementById('ev-product-select');
   select.value = EVOLUTIVO_PRODUCT[seg];
