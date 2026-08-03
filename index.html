@@ -404,9 +404,9 @@
         <circle class="gauge-bg" cx="130" cy="130" r="120"/>
         <circle class="gauge-fg" id="gauge-fg" cx="130" cy="130" r="120"/>
       </svg>
-      <div class="gauge-center has-tip" data-tip="Promedio simple del ritmo de todos los productos con carga: por cada producto, acumulado real ÷ objetivo prorrateado a los días efectivamente cargados este mes. Luego se promedia entre productos (no se pondera por volumen).">
+      <div class="gauge-center has-tip" data-tip="Cantidad de productos, de todos los squads, cuyo ritmo acumulado en 2026 (real ÷ objetivo prorrateado) es 100% o más, sobre el total de productos con objetivo definido.">
         <div class="pct" id="gauge-pct">0%</div>
-        <div class="lbl">Ritmo promedio<br>vs. objetivo a la fecha</div>
+        <div class="lbl">Objetivos cumplidos<br>sobre el total</div>
       </div>
     </div>
     <div class="hero-side">
@@ -1372,25 +1372,26 @@ function renderHero(){
       allProducts.push({seg, prod, ...DATASET[seg].products[prod]});
     });
   });
-  const withData = allProducts.filter(p=>p.ritmo!==null);
-  const overallRitmo = withData.length ? withData.reduce((a,p)=>a+p.ritmo,0)/withData.length : null;
+  const totalCumplidos = allProducts.filter(p=>p.ritmo!==null && p.ritmo>=1).length;
+  const totalProductos = allProducts.length;
 
-  // ritmo promedio + último mes con datos, por squad
+  // cumplidos/total por squad, mes al que corresponden los datos
   const grid = document.getElementById('squad-mini-grid');
   grid.innerHTML = '';
   Object.keys(DATASET).forEach(seg=>{
     const prods = Object.values(DATASET[seg].products);
-    const prodsConDatos = prods.filter(p=>p.ritmo!==null);
-    const avg = prodsConDatos.length ? prodsConDatos.reduce((a,p)=>a+p.ritmo,0)/prodsConDatos.length : null;
+    const cumplidos = prods.filter(p=>p.ritmo!==null && p.ritmo>=1).length;
+    const total = prods.length;
+    const ratio = total ? cumplidos/total : null;
     const tieneDatosMesSel = prods.some(p => p.real[SELECTED_MONTH_IDX] !== null && p.real[SELECTED_MONTH_IDX] !== undefined);
     const fill = SQUAD_FILLS[seg] || 'var(--teal-500)';
     const card = document.createElement('div');
     card.className = 'squad-mini-card has-tip' + (seg===ACTIVE_SEGMENT ? ' is-active' : '');
     card.style.borderTopColor = fill;
-    card.setAttribute('data-tip', `Promedio del ritmo acumulado en 2026 (real ÷ objetivo prorrateado) de los productos de ${seg} que tienen carga. Tocá para ver el detalle del squad.`);
+    card.setAttribute('data-tip', `Cantidad de productos de ${seg} cuyo ritmo acumulado en 2026 (real ÷ objetivo prorrateado) es 100% o más, sobre el total de productos del squad. Tocá para ver el detalle.`);
     card.innerHTML = `
       <div class="sm-name">${seg}</div>
-      <div class="sm-pct" style="color:${avg===null?'var(--ink-500)':(avg>=1?'var(--lime-ink)':(avg<=0.85?'var(--magenta-ink)':'var(--ink-900)'))}">${avg===null?'—':pct(avg)}</div>
+      <div class="sm-pct" style="color:${ratio===null?'var(--ink-500)':(ratio>=0.7?'var(--lime-ink)':(ratio<0.4?'var(--magenta-ink)':'var(--ink-900)'))}">${cumplidos}/${total}</div>
       <div class="sm-sub">${tieneDatosMesSel ? `datos de ${MONTHS[SELECTED_MONTH_IDX]}` : `sin datos en ${MONTHS[SELECTED_MONTH_IDX]}`}</div>`;
     card.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderHero); };
     grid.appendChild(card);
@@ -1428,10 +1429,9 @@ function renderHero(){
       </div>`;
   }
 
-  const pctInt = overallRitmo===null ? 0 : Math.round(overallRitmo*100);
-  document.getElementById('gauge-pct').textContent = overallRitmo===null ? '—' : pctInt + '%';
+  document.getElementById('gauge-pct').textContent = `${totalCumplidos}/${totalProductos}`;
   const circumference = 2*Math.PI*120;
-  const clamped = overallRitmo===null ? 0 : Math.min(overallRitmo, 1.3)/1.3;
+  const clamped = totalProductos ? totalCumplidos/totalProductos : 0;
   const offset = circumference - clamped * circumference;
   requestAnimationFrame(()=>{
     document.getElementById('gauge-fg').style.strokeDashoffset = offset;
