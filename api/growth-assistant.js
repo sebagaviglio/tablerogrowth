@@ -22,8 +22,12 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const SHEET_SCRIPT_URL = process.env.GROWTH_SHEET_SCRIPT_URL;
 const MODEL = 'claude-sonnet-5';
 
+function recentHistoryText(history) {
+  if (!Array.isArray(history)) return '';
+  return history.slice(-4).map((m) => (m && m.content) || '').join(' ');
+}
+
 // Cache liviano en memoria (vive mientras la instancia serverless esté "warm")
-let dataCache = { payload: null, fetchedAt: 0 };
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
 module.exports = async function handler(req, res) {
@@ -43,7 +47,7 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const liveContext = await getLiveContext();
+    const liveContext = await getLiveContext(detectMentionedMonths(message + ' ' + recentHistoryText(history)));
     const systemPrompt = buildSystemPrompt(liveContext);
 
     const messages = (Array.isArray(history) ? history : [])
@@ -100,6 +104,31 @@ module.exports = async function handler(req, res) {
  * ------------------------------------------------------------ */
 const MONTH_TABS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
+// alias en español (nombre completo o abreviatura) -> nombre de pestaña real
+const MONTH_ALIASES = {
+  enero: 'Ene', ene: 'Ene',
+  febrero: 'Feb', feb: 'Feb',
+  marzo: 'Mar', mar: 'Mar',
+  abril: 'Abr', abr: 'Abr',
+  mayo: 'May', may: 'May',
+  junio: 'Jun', jun: 'Jun',
+  julio: 'Jul', jul: 'Jul',
+  agosto: 'Ago', ago: 'Ago',
+  septiembre: 'Sep', setiembre: 'Sep', sept: 'Sep', sep: 'Sep',
+  octubre: 'Oct', oct: 'Oct',
+  noviembre: 'Nov', nov: 'Nov',
+  diciembre: 'Dic', dic: 'Dic'
+};
+
+function detectMentionedMonths(text) {
+  const lower = (text || '').toLowerCase();
+  const found = new Set();
+  for (const alias in MONTH_ALIASES) {
+    if (new RegExp('\\b' + alias + '\\b', 'i').test(lower)) found.add(MONTH_ALIASES[alias]);
+  }
+  return Array.from(found);
+}
+
 async function fetchTab(tabName) {
   const url = SHEET_SCRIPT_URL + '?tab=' + encodeURIComponent(tabName);
   const r = await fetch(url, { method: 'GET' });
@@ -110,36 +139,70 @@ async function fetchTab(tabName) {
   return text;
 }
 
-async function getLiveContext() {
+// Caché de la base (Plan Anual + mes en curso) — la parte que se pide siempre.
+let baseCache = { payload: null, fetchedAt: 0 };
+// Caché de pestañas de meses puntuales pedidas bajo demanda (una entrada por mes).
+const monthTabCache = {};
+
+async function getBaseContext() {
   const now = Date.now();
-  if (dataCache.payload && now - dataCache.fetchedAt < CACHE_TTL_MS) {
-    return dataCache.payload;
+  if (baseCache.payload && now - baseCache.fetchedAt < CACHE_TTL_MS) {
+    return baseCache.payload;
   }
-
-  if (!SHEET_SCRIPT_URL) {
-    return { planAnualCsv: null, monthCsv: null, fetchedAt: new Date().toISOString(), error: 'GROWTH_SHEET_SCRIPT_URL no configurada' };
-  }
-
-  const monthTabName = MONTH_TABS[new Date().getMonth()];
-
+  const currentMonthTab = MONTH_TABS[new Date().getMonth()];
   try {
     const [planAnualCsv, monthCsv] = await Promise.all([
       fetchTab('Plan Anual'),
-      fetchTab(monthTabName)
+      fetchTab(currentMonthTab)
     ]);
-
     const payload = {
       planAnualCsv: planAnualCsv.slice(0, 5000),
-      monthTabName,
+      currentMonthTab,
       monthCsv: monthCsv.slice(0, 7000),
       fetchedAt: new Date().toISOString()
     };
-    dataCache = { payload, fetchedAt: now };
+    baseCache = { payload, fetchedAt: now };
     return payload;
   } catch (err) {
-    console.error('No se pudo leer el Sheet en vivo', err);
-    return { planAnualCsv: null, monthCsv: null, monthTabName, fetchedAt: new Date().toISOString(), error: String(err.message || err) };
+    console.error('No se pudo leer el Sheet en vivo (base)', err);
+    return { planAnualCsv: null, monthCsv: null, currentMonthTab, fetchedAt: new Date().toISOString(), error: String(err.message || err) };
   }
+}
+
+async function getExtraMonthTab(tabName) {
+  const now = Date.now();
+  const cached = monthTabCache[tabName];
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) return cached;
+  try {
+    const csv = await fetchTab(tabName);
+    const entry = { csv: csv.slice(0, 7000), error: null, fetchedAt: now };
+    monthTabCache[tabName] = entry;
+    return entry;
+  } catch (err) {
+    const entry = { csv: null, error: String(err.message || err), fetchedAt: now };
+    monthTabCache[tabName] = entry;
+    return entry;
+  }
+}
+
+/**
+ * mentionedMonths: nombres de pestaña (p.ej. ['Jul']) detectados en el mensaje
+ * del usuario (y últimos turnos de la conversación), a pedir además de la base.
+ */
+async function getLiveContext(mentionedMonths) {
+  if (!SHEET_SCRIPT_URL) {
+    return { planAnualCsv: null, monthCsv: null, extraMonths: {}, fetchedAt: new Date().toISOString(), error: 'GROWTH_SHEET_SCRIPT_URL no configurada' };
+  }
+
+  const base = await getBaseContext();
+  const extrasToFetch = (mentionedMonths || []).filter((m) => m !== base.currentMonthTab).slice(0, 3);
+
+  const extraMonths = {};
+  await Promise.all(extrasToFetch.map(async (tabName) => {
+    extraMonths[tabName] = await getExtraMonthTab(tabName);
+  }));
+
+  return { ...base, extraMonths };
 }
 
 /* ------------------------------------------------------------ *
@@ -147,30 +210,49 @@ async function getLiveContext() {
  * tono + límites                                                *
  * ------------------------------------------------------------ */
 function buildSystemPrompt(liveContext) {
-  const dataBlock = liveContext.planAnualCsv && liveContext.monthCsv
-    ? `Datos crudos leídos en vivo del Sheet (${liveContext.fetchedAt}).
+  let dataBlock;
+  if (liveContext.planAnualCsv && liveContext.monthCsv) {
+    const extraEntries = Object.entries(liveContext.extraMonths || {});
+    const extraBlocks = extraEntries.map(([tabName, entry]) => {
+      if (entry.csv) {
+        return `\n--- Pestaña "${tabName}" (pedida a demanda, cerrada) ---\n${entry.csv}`;
+      }
+      return `\n--- Pestaña "${tabName}" ---\nNo se pudo leer (${entry.error || 'sin detalle'}). Puede que esa pestaña no exista (recordá: Ene-Jun fueron borradas a propósito, la medición real arrancó en julio 2026) — si es una de esas, decilo así en vez de sugerir que es un error.`;
+    }).join('\n');
+
+    dataBlock = `Datos crudos leídos en vivo del Sheet (${liveContext.fetchedAt}).
 
 --- Pestaña "Plan Anual" (objetivos mensuales, fuente de verdad) ---
 ${liveContext.planAnualCsv}
 
---- Pestaña "${liveContext.monthTabName}" (mes en curso, datos reales día a día) ---
+--- Pestaña "${liveContext.currentMonthTab}" (mes en curso, datos reales día a día) ---
 ${liveContext.monthCsv}
+${extraBlocks}
 
 Cómo leer estos CSV:
 - "Plan Anual": columnas Squad | Producto | KPI / Métrica | Ene...Dic. Cada celda de
   mes es el objetivo de ese producto para ese mes. Usá SIEMPRE esta pestaña para la
-  meta mensual — nunca la fila "META MES" de la pestaña del mes (tiene un desalineamiento
+  meta mensual — nunca la fila "META MES" de una pestaña mensual (tiene un desalineamiento
   de columna conocido en Habitualidad/Jun, así que ese dato no es confiable ahí).
-- Pestaña del mes en curso: por cada squad hay un bloque que arranca con una fila
+- Cada pestaña mensual: por cada squad hay un bloque que arranca con una fila
   "SQUAD · PO: nombre · Own: nombre", seguido de una grilla diaria (columnas: Día |
   Fecha | producto1 | producto2 ... | TOTAL) hasta una fila "TOTAL ACUM" (ese es el
-  acumulado real de cada producto a la fecha). Ignorá las filas "META MES",
-  "% CUMPL.", "META PROP." y "% vs M.PROP" de esta pestaña — el dashboard ya sabe
-  que están desalineadas y las recalcula solo desde Plan Anual; hacé lo mismo vos.
-- Para calcular ritmo de un producto: tomá su objetivo mensual de Plan Anual (columna
-  del mes en curso), prorrateado a la cantidad de días con carga real (filas con datos
-  antes de "TOTAL ACUM"), y comparalo contra el acumulado real de esa fila.`
-    : `No se pudo leer el Sheet en vivo en este momento (${liveContext.error || 'sin detalle'}). Trabajá solo con lo que el usuario te cuente y avisale explícitamente que no tenés los números actualizados a mano.`;
+  acumulado real de cada producto a la fecha, o al cierre del mes si ya cerró).
+  Ignorá las filas "META MES", "% CUMPL.", "META PROP." y "% vs M.PROP" de cualquier
+  pestaña mensual — el dashboard ya sabe que están desalineadas y las recalcula
+  siempre desde Plan Anual; hacé lo mismo vos.
+- Para calcular ritmo de un producto en el mes en curso: tomá su objetivo mensual de
+  Plan Anual (columna del mes correspondiente), prorrateado a la cantidad de días con
+  carga real, y comparalo contra el acumulado real de esa fila. Para un mes ya cerrado
+  (como los que te llegan bajo "pedida a demanda, cerrada"), el % de cumplimiento es
+  simplemente acumulado real ÷ objetivo del mes completo (sin prorratear, porque el
+  mes ya terminó).
+- Si te preguntan por un mes y no está en "Datos del negocio" (ni en la base ni en las
+  pestañas a demanda), decilo explícitamente — no seas específico con un número que
+  no tenés.`;
+  } else {
+    dataBlock = `No se pudo leer el Sheet en vivo en este momento (${liveContext.error || 'sin detalle'}). Trabajá solo con lo que el usuario te cuente y avisale explícitamente que no tenés los números actualizados a mano.`;
+  }
 
   return `Sos el Asistente de Growth de Bancor: un consultor senior de Growth Digital
 integrado al Tablero de Growth, que usan los 4 squads (Adquisición y Crosselling,
