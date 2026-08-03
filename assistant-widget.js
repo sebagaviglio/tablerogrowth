@@ -39,6 +39,81 @@
     return t.content.firstElementChild;
   }
 
+  /* ---- mini markdown renderer: tablas, negrita/cursiva, código, listas ----
+     Escapa TODO el HTML de entrada antes de interpretar markdown, así el
+     contenido del modelo nunca puede inyectar HTML/JS real. */
+  function escapeHtml(s) {
+    return s
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function inlineMd(text) {
+    return text
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*_])[*_]([^*_]+)[*_](?!\*|_)/g, '$1<em>$2</em>');
+  }
+
+  function splitTableRow(line) {
+    return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+  }
+
+  function renderMarkdown(raw) {
+    const lines = escapeHtml(raw || '').split(/\r?\n/);
+    const blocks = [];
+    let listBuf = null;   // { type: 'ul'|'ol', items: [] }
+    let paraBuf = [];
+    let i = 0;
+
+    const flushPara = () => {
+      if (paraBuf.length) { blocks.push('<p>' + paraBuf.join('<br>') + '</p>'); paraBuf = []; }
+    };
+    const flushList = () => {
+      if (listBuf) {
+        const tag = listBuf.type;
+        blocks.push('<' + tag + '>' + listBuf.items.map((it) => '<li>' + it + '</li>').join('') + '</' + tag + '>');
+        listBuf = null;
+      }
+    };
+
+    while (i < lines.length) {
+      const line = lines[i];
+
+      // tabla estilo GFM: fila de encabezado + fila separadora (|---|---|)
+      if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
+        flushPara(); flushList();
+        const header = splitTableRow(line);
+        i += 2;
+        const rows = [];
+        while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { rows.push(splitTableRow(lines[i])); i++; }
+        const thead = '<tr>' + header.map((c) => '<th>' + inlineMd(c) + '</th>').join('') + '</tr>';
+        const tbody = rows.map((r) => '<tr>' + r.map((c) => '<td>' + inlineMd(c) + '</td>').join('') + '</tr>').join('');
+        blocks.push('<div class="ga-table-wrap"><table class="ga-table"><thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table></div>');
+        continue;
+      }
+
+      const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+      const numbered = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (bullet || numbered) {
+        flushPara();
+        const type = bullet ? 'ul' : 'ol';
+        if (!listBuf || listBuf.type !== type) { flushList(); listBuf = { type, items: [] }; }
+        listBuf.items.push(inlineMd(bullet ? bullet[1] : numbered[1]));
+        i++;
+        continue;
+      }
+
+      if (/^\s*$/.test(line)) { flushPara(); flushList(); i++; continue; }
+
+      flushList();
+      paraBuf.push(inlineMd(line));
+      i++;
+    }
+    flushPara(); flushList();
+    return blocks.join('');
+  }
+
   function build() {
     const root = el(`
       <div id="ga-root">
@@ -79,7 +154,11 @@
     }
     state.history.forEach((m) => {
       const bubble = el(`<div class="ga-msg ga-msg-${m.role === 'user' ? 'user' : 'assistant'}"></div>`);
-      bubble.textContent = m.content;
+      if (m.role === 'assistant') {
+        bubble.innerHTML = renderMarkdown(m.content);
+      } else {
+        bubble.textContent = m.content;
+      }
       container.appendChild(bubble);
     });
     container.scrollTop = container.scrollHeight;
