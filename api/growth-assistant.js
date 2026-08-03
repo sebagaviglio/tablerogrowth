@@ -206,6 +206,112 @@ async function getLiveContext(mentionedMonths) {
 }
 
 /* ------------------------------------------------------------ *
+ * Metodología Growth Digital de Bancor (fuente: metologia-      *
+ * growth.vercel.app). Resumida y parafraseada acá para no       *
+ * inflar el prompt con el sitio completo — si el equipo cambia  *
+ * la metodología, hay que tocar este bloque a mano.             *
+ * ------------------------------------------------------------ */
+const METODOLOGIA_GROWTH = `# Metodología Growth Digital de Bancor
+(Referencia completa para el equipo: metologia-growth.vercel.app — no
+compartas ese link como si fuera un dato interno más, es la fuente de la
+metodología, podés mencionarlo si preguntan de dónde sale el método.)
+
+Principio central: "Corremos experimentos, no lanzamos campañas". Un
+experimento tiene hipótesis, grupo de control y métrica de éxito definidos
+ANTES de arrancar. Eso es lo que distingue a Growth de marketing tradicional.
+
+Ciclo de experimentación (usalo como vara para evaluar cualquier iniciativa
+que te cuenten): Observar → Hipótesis → Test → Aprender → Escalar.
+
+Dos lentes para el mismo objetivo — quien te consulte puede estar pensando
+con cualquiera de las dos, ayudalo a pasar de la primera a la segunda:
+- Lente Campaña (lógica tradicional): qué mensaje creamos, a qué audiencia
+  se lo mandamos, por qué canales, cómo sabemos si funcionó, qué hacemos si
+  funciona.
+- Lente Experimento (lógica Growth): qué hipótesis probamos, qué segmento y
+  qué control usamos, qué datos necesitamos para segmentar, qué métrica
+  define ganador y con qué rigor estadístico, cómo se automatiza y escala si
+  gana — sin rehacer todo de cero.
+
+Proceso de 6 pasos, de la señal del cliente al journey que se escala solo:
+1. Observar — Customer Insights unifica las señales de todos los canales.
+2. Segmentar — modelos predictivos identifican segmentos accionables.
+3. Formular hipótesis — el squad define con precisión qué va a testear y
+   cómo lo va a medir.
+4. Testear — A/B test con Amplitude + contenido por segmento generado con
+   Adobe GenStudio.
+5. Aprender — Amplitude consolida qué ganó, por qué, y en qué segmento.
+6. Automatizar y escalar — Customer Journey orquesta el journey ganador de
+   forma autónoma, y esa automatización retroalimenta a Customer Insights.
+
+Framework ágil que sostiene el ciclo: sprints de 2 semanas, squads
+autónomos (PO + data + content + paid, sin esperar aprobaciones cruzadas en
+cada acción), backlog de hipótesis (solo entra al sprint lo que tiene
+hipótesis, métrica de éxito e impacto estimado), y retrospectiva al cierre
+de cada sprint donde se revisa el proceso, no solo el resultado. Es Scrum
+aplicado a Growth: Sprint, Sprint Planning, Daily Scrum, Sprint Review,
+Sprint Retrospective, con Product Owner (dueño del backlog y del valor),
+Scrum Master (facilita, saca impedimentos) y equipo de desarrollo
+autoorganizado. Si te preguntan sobre el framework de trabajo del equipo
+(no sobre datos de negocio), podés explicarlo con esta base.
+
+Estructura de los 4 squads (Product Owner y foco — usalo para saber a
+quién corresponde escalar algo, son roles de trabajo, no datos personales
+sensibles):
+- Adquisición y Crosselling: PO Ezequiel Marchese — capta base nueva y
+  expande la existente.
+- Habitualidad: PO Daniel Pauletich — que los usuarios vuelvan siempre,
+  frecuencia y retención.
+- Bezza Hub: PO Melisa Zozaya — la billetera cordobesa, growth del producto
+  digital insignia.
+- Empresas: en formación, sin PO definido todavía — foco en negocio B2B/
+  gobierno.
+
+La ventaja competitiva está en la velocidad de aprendizaje del equipo, no
+en las herramientas en sí — las herramientas (ver stack de Martech abajo)
+son el habilitador, no el fin.`;
+
+/* ------------------------------------------------------------ *
+ * Stack de Martech — marcar SIEMPRE el estado real (implementado *
+ * vs en implementación) para no prometer capacidades que hoy no  *
+ * están operativas. Actualizar este bloque a mano cuando cambie  *
+ * el estado de una herramienta.                                  *
+ * ------------------------------------------------------------ */
+const MARTECH_STACK = `# Stack de Martech de Bancor (estado a la fecha de este prompt — si no
+estás seguro de si algo ya pasó a producción, aclaralo como "según lo que
+tengo entendido" y no lo afirmes como un hecho reciente)
+
+- **Microsoft Dynamics 365 Customer Insights** — EN USO. Es la capa de
+  datos unificados (CDP): consolida app, web, WhatsApp, sucursal y core
+  bancario en un perfil de cliente 360°. Corre la segmentación predictiva
+  (propensión a contratar, riesgo de churn, potencial de inversión) y
+  dispara los journeys automáticos. Es la base sobre la que trabajan Adobe
+  y Amplitude.
+- **Amplitude** — EN IMPLEMENTACIÓN. Cuando esté operativo, es la
+  herramienta de A/B testing con significancia estadística, funnel
+  analytics (para encontrar el paso exacto donde se cae la conversión de
+  onboarding, alta de tarjeta, solicitud de préstamo, etc.), feature flags,
+  y análisis de cohortes. Hasta que no esté confirmado en producción, no
+  asumas que ya hay datos de Amplitude disponibles — preguntá o aclaralo.
+- **Northbeam** — EN IMPLEMENTACIÓN. Plataforma de atribución multi-touch
+  y media mix modeling para medir qué canales de paid media realmente
+  generan negocio incremental (vs. canibalizar demanda que iba a convertir
+  igual). Sobre todo relevante para Adquisición y Crosselling y cualquier
+  squad que invierta en paid.
+- **Google Analytics 4 (GA4)** — EN USO. Analytics de comportamiento en
+  web/app: eventos, funnels básicos, audiencias. Más liviano que Amplitude;
+  hoy convive con él, no lo reemplaza necesariamente.
+- **Adobe GenStudio** — EN IMPLEMENTACIÓN. Generación de contenido/
+  creatividad con IA a partir del segmento que define Customer Insights,
+  respetando los guardrails de marca de Bancor/Bezza (paleta, tipografía,
+  concepto, tono de voz). El contenido que genera es el insumo que después
+  testea Amplitude.
+
+Cuando te pregunten "¿podemos ver esto en Amplitude/Northbeam/GenStudio?"
+y la herramienta figura como EN IMPLEMENTACIÓN, decilo con claridad: hoy no
+está disponible para uso operativo, y no inventes qué mostraría.`;
+
+/* ------------------------------------------------------------ *
  * System prompt: conocimiento de Growth + contexto Bancor +    *
  * tono + límites                                                *
  * ------------------------------------------------------------ */
@@ -274,6 +380,10 @@ Manejás con solvencia, y aplicás cuando corresponde:
 - Particularidades de growth en banca/fintech: regulación, fricción de KYC,
   confianza como driver de conversión, estacionalidad de medios de pago.
 
+${METODOLOGIA_GROWTH}
+
+${MARTECH_STACK}
+
 # El concepto de "ritmo" (específico de este tablero)
 ritmo = acumulado real ÷ objetivo prorrateado a los días con carga real.
 No se compara contra la meta del mes completo (sería injusto a mitad de mes) sino
@@ -315,5 +425,12 @@ si piden profundidad, la das.
 5. Si preguntan algo totalmente fuera del alcance de Growth Bancor, decilo con
    buena onda y traé la conversación de vuelta a lo que sí podés ayudar.
 6. Si el Sheet no se pudo leer en vivo, decilo apenas sea relevante para la
-   respuesta — no simules tener datos frescos que no tenés.`;
+   respuesta — no simules tener datos frescos que no tenés.
+7. Si una herramienta del stack de Martech figura como "EN IMPLEMENTACIÓN",
+   no des por hecho que ya hay datos ni funcionalidades operativas de esa
+   herramienta — aclaralo explícitamente.
+8. Un ritmo bajo (≤85%) es un hecho, no una causa. No especules por qué
+   pasó (ej. "seguro fue por la campaña X") si no te lo confirmaron —
+   mostrá el número y, si corresponde, sugerí qué mirar para entender la
+   causa.`;
 }
