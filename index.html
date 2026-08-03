@@ -109,6 +109,11 @@
   }
   .icon-btn:hover{ background: var(--teal-600); border-color: var(--teal-600); color:#fff; transform: translateY(-1px); }
   .icon-btn svg{ width:18px; height:18px; }
+  .month-select{
+    font-family: var(--font-mono); font-size:12.5px; color: var(--ink-900); background: var(--surface);
+    border:1px solid var(--border); border-radius:10px; padding:9px 12px; cursor:pointer; box-shadow: var(--shadow-sm);
+  }
+  .month-select:focus{ outline:none; border-color: var(--teal-500); }
 
   /* ---------- SETTINGS PANEL ---------- */
   .settings-overlay{
@@ -373,6 +378,7 @@
       </div>
     </div>
     <div class="header-right">
+      <select id="month-select" class="month-select has-tip" data-tip="Elegí qué mes mirar. Al entrar siempre arranca en el mes calendario actual, tenga o no datos cargados todavía."></select>
       <div class="clock"><span class="dot"></span><span id="clock-text">--:--:--</span></div>
       <div class="icon-btn" id="settings-btn" title="Conectar Google Sheet">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -499,6 +505,28 @@ function safeRender(fn, label){
   try{ fn(); }catch(e){ console.error(`[Bancor Growth] error en ${label||fn.name}:`, e); }
 }
 const DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
+
+// Mes que se está mirando en el tablero. Arranca SIEMPRE en el mes calendario real
+// (el de "hoy"), tenga o no datos cargados todavía — el desplegable del header
+// permite pararse en otro mes para revisar historia o adelantarse a ver si ya
+// hay carga en el mes nuevo.
+let SELECTED_MONTH_IDX = new Date().getMonth();
+
+function populateMonthSelect(){
+  const sel = document.getElementById('month-select');
+  if(!sel || sel.options.length) return; // ya poblado
+  MONTHS.forEach((m, idx)=>{
+    const opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = `${m} 2026`;
+    sel.appendChild(opt);
+  });
+  sel.value = SELECTED_MONTH_IDX;
+  sel.onchange = ()=>{
+    SELECTED_MONTH_IDX = parseInt(sel.value, 10);
+    renderAll();
+  };
+}
 
 const SQUAD_COLORS = {
   'Adquisición y Crosselling': 'var(--orange-ink)',
@@ -904,28 +932,33 @@ async function fetchFromSheet(showToast=true){
   diag(`Config usada → sheetId: ${cfg.sheetId || '(ninguno)'} | appsScriptUrl: ${cfg.appsScriptUrl || '(ninguno)'}`);
   showDiag();
   try{
-    const planCSV = await fetchTabCSV(cfg.sheetId, 'Plan Anual', cfg.appsScriptUrl);
-    const planRows = parseCSV(planCSV);
+    const allTabs = ['Plan Anual', ...MONTHS];
+    const allResults = await Promise.allSettled(
+      allTabs.map(tab => fetchTabCSV(cfg.sheetId, tab, cfg.appsScriptUrl).then(csv => ({ tab, csv })))
+    );
+    const [planResult, ...monthResults] = allResults;
+
+    if(planResult.status !== 'fulfilled') throw new Error(`"Plan Anual" — ${planResult.reason && planResult.reason.message ? planResult.reason.message : planResult.reason}`);
+    const planRows = parseCSV(planResult.value.csv);
     const planData = parsePlanAnual(planRows);
     if(!planData || !Object.keys(planData).length) throw new Error('"Plan Anual" se pudo leer pero no reconocí columnas válidas (¿cambiaron los encabezados?).');
     diag(`Plan Anual OK — ${planRows.length} filas CSV — squads: ${Object.keys(planData).join(', ')}`);
     Object.keys(planData).forEach(sq=> diag(`  · ${sq}: ${Object.keys(planData[sq]).length} productos`));
-    showDiag();
 
     const monthlyByTab = {};
-    for(const m of MONTHS){
-      try{
-        const csv = await fetchTabCSV(cfg.sheetId, m, cfg.appsScriptUrl);
-        const parsedMonth = parseMonthTab(parseCSV(csv));
+    monthResults.forEach((res, idx)=>{
+      const m = MONTHS[idx];
+      if(res.status === 'fulfilled'){
+        const parsedMonth = parseMonthTab(parseCSV(res.value.csv));
         monthlyByTab[m] = parsedMonth;
         const squadsFound = Object.keys(parsedMonth);
         diag(`${m}: ${squadsFound.length ? squadsFound.join(', ') : 'sin bloques (pestaña vacía o no existe)'}`);
-      }catch(e){
+      } else {
         monthlyByTab[m] = {};
-        diag(`${m}: FALLÓ — ${e.message}`);
+        diag(`${m}: FALLÓ — ${res.reason && res.reason.message ? res.reason.message : res.reason}`);
       }
-      showDiag();
-    }
+    });
+    showDiag();
     const seed = combineSheetData(planData, monthlyByTab);
     DATASET = buildWorkingDataset(seed);
     isDemo = false;
@@ -940,6 +973,11 @@ async function fetchFromSheet(showToast=true){
     diag(`ERROR: ${err.message}`);
     showDiag();
     console.error('[Bancor Growth] fetch error:', err);
+    if(isDemo){
+      const flag = document.getElementById('demo-flag');
+      flag.textContent = 'Datos de ejemplo';
+      flag.style.display = 'inline-block';
+    }
     if(showToast) toast('No se pudo leer "Plan Anual": ' + (err && err.message ? err.message : 'error desconocido') + '. Abrí la consola (F12) para más detalle.');
     return false;
   }
@@ -1035,7 +1073,10 @@ function renderCards(){
     const card = document.createElement('div');
     card.className = 'product-card';
     card.style.animation = `fadeUp .5s ease ${i*0.04}s both`;
-    if(d.lastMonthIdx>=0){
+    const selMonthLabel = MONTHS[SELECTED_MONTH_IDX];
+    const selReal = d.real[SELECTED_MONTH_IDX];
+    const selTarget = d.plan[SELECTED_MONTH_IDX];
+    if(selReal !== null && selReal !== undefined){
       card.innerHTML = `
         <div class="card-head">
           <div class="titles">
@@ -1046,8 +1087,8 @@ function renderCards(){
         </div>
         ${sparklineSVG(d.plan, d.real)}
         <div class="p-figs">
-          <div><span class="has-tip" data-tip="Total acumulado de ${kpiSafe.replace('# ','').toLowerCase()} cargado día a día en ${d.lastMonthLabel} 2026, según la pestaña mensual del Sheet.">Acum. ${d.lastMonthLabel}</span><b>${fmtNum(d.lastMonthAcum)}</b></div>
-          <div><span class="has-tip tip-right" data-tip="Meta mensual completa para ${d.lastMonthLabel}, tomada de la pestaña Plan Anual (no de la fila META MES del mes, para evitar arrastrar errores de esa fila).">Meta ${d.lastMonthLabel}</span><b>${fmtNum(d.lastMonthTarget)}</b></div>
+          <div><span class="has-tip" data-tip="Total acumulado de ${kpiSafe.replace('# ','').toLowerCase()} cargado día a día en ${selMonthLabel} 2026, según la pestaña mensual del Sheet.">Acum. ${selMonthLabel}</span><b>${fmtNum(selReal)}</b></div>
+          <div><span class="has-tip tip-right" data-tip="Meta mensual completa para ${selMonthLabel}, tomada de la pestaña Plan Anual (no de la fila META MES del mes, para evitar arrastrar errores de esa fila).">Meta ${selMonthLabel}</span><b>${fmtNum(selTarget)}</b></div>
         </div>`;
     } else {
       card.innerHTML = `
@@ -1056,11 +1097,11 @@ function renderCards(){
             <div class="p-name">${prod}</div>
             <div class="p-sub">${kpiSafe}</div>
           </div>
-          <span class="badge warn has-tip tip-right" data-tip="Este producto tiene objetivo en Plan Anual pero ningún día cargado todavía en las pestañas mensuales, por lo que no se puede calcular un ritmo.">sin datos</span>
+          <span class="badge warn has-tip tip-right" data-tip="Todavía no hay carga diaria para ${prod} en ${selMonthLabel} (o esa pestaña no existe).">sin datos en ${selMonthLabel}</span>
         </div>
         ${sparklineSVG(d.plan, d.real)}
         <div class="p-figs">
-          <div>Sin carga diaria todavía<b>—</b></div>
+          <div>Sin carga diaria en ${selMonthLabel}<b>—</b>${selTarget!==null && selTarget!==undefined ? `<span style="font-family:var(--font-mono); font-size:10px; color:var(--ink-500);">Meta del mes: ${fmtNum(selTarget)}</span>` : ''}</div>
         </div>`;
     }
     grid.appendChild(card);
@@ -1137,10 +1178,9 @@ function computeFirstTrackedMonthIdx(){
 
 function computeEvBars(seg, productFilter){
   const sq = DATASET[seg];
-  const globalLast = computeGlobalLastMonthIdx();
   const firstTracked = computeFirstTrackedMonthIdx();
   const closedIdx = [];
-  for(let m=firstTracked; m<globalLast; m++) closedIdx.push(m);
+  for(let m=firstTracked; m<SELECTED_MONTH_IDX; m++) closedIdx.push(m);
   let bars;
   if(!productFilter || productFilter === '__squad__'){
     bars = closedIdx.map(mi=>{
@@ -1162,7 +1202,7 @@ function computeEvBars(seg, productFilter){
 /* ---------- EVOLUTIVO DIARIO (mes en curso, brecha objetivo vs cumplido) ---------- */
 function computeDailySeries(seg, productFilter){
   const sq = DATASET[seg];
-  const monthIdx = computeGlobalLastMonthIdx();
+  const monthIdx = SELECTED_MONTH_IDX;
   if(monthIdx < 0) return null;
   const monthLabel = MONTHS[monthIdx];
   const daysInMonthCount = DAYS_IN_MONTH[monthIdx];
@@ -1236,7 +1276,7 @@ function renderDailyBody(seg, productFilter){
   const subject = (!productFilter || productFilter==='__squad__') ? `el promedio de ${seg}` : `"${productFilter}"`;
 
   if(!series || !series.points.length || series.asOfDay===0){
-    body.innerHTML = `<div class="ev-empty">Todavía no hay carga diaria para ${subject} en el mes en curso.</div>`;
+    body.innerHTML = `<div class="ev-empty">Todavía no hay carga diaria para ${subject} en ${MONTHS[SELECTED_MONTH_IDX]}.</div>`;
     return;
   }
   const last = series.points[series.asOfDay-1];
@@ -1264,10 +1304,9 @@ function renderEvolutivoBody(seg, productFilter){
   if(!body) return;
   const bars = computeEvBars(seg, productFilter);
   const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
-  const globalLast = computeGlobalLastMonthIdx();
 
   if(!bars.length){
-    body.innerHTML = `<div class="ev-empty">Todavía no hay meses cerrados para comparar — el primer mes con carga (${globalLast>=0?MONTHS[globalLast]:'—'}) sigue en curso.</div>`;
+    body.innerHTML = `<div class="ev-empty">No hay meses cerrados antes de ${MONTHS[SELECTED_MONTH_IDX]} para comparar.</div>`;
     return;
   }
   const maxPct = Math.max(1, ...bars.filter(b=>b.pct!==null).map(b=>b.pct));
@@ -1340,16 +1379,16 @@ function renderHero(){
     const prods = Object.values(DATASET[seg].products);
     const prodsConDatos = prods.filter(p=>p.ritmo!==null);
     const avg = prodsConDatos.length ? prodsConDatos.reduce((a,p)=>a+p.ritmo,0)/prodsConDatos.length : null;
-    const lastIdx = Math.max(-1, ...prods.map(p=>p.lastMonthIdx));
+    const tieneDatosMesSel = prods.some(p => p.real[SELECTED_MONTH_IDX] !== null && p.real[SELECTED_MONTH_IDX] !== undefined);
     const fill = SQUAD_FILLS[seg] || 'var(--teal-500)';
     const card = document.createElement('div');
     card.className = 'squad-mini-card has-tip' + (seg===ACTIVE_SEGMENT ? ' is-active' : '');
     card.style.borderTopColor = fill;
-    card.setAttribute('data-tip', `Promedio del ritmo (real ÷ objetivo prorrateado) de los productos de ${seg} que tienen carga. Tocá para ver el detalle del squad.`);
+    card.setAttribute('data-tip', `Promedio del ritmo acumulado en 2026 (real ÷ objetivo prorrateado) de los productos de ${seg} que tienen carga. Tocá para ver el detalle del squad.`);
     card.innerHTML = `
       <div class="sm-name">${seg}</div>
       <div class="sm-pct" style="color:${avg===null?'var(--ink-500)':(avg>=1?'var(--lime-ink)':(avg<=0.85?'var(--magenta-ink)':'var(--ink-900)'))}">${avg===null?'—':pct(avg)}</div>
-      <div class="sm-sub">${lastIdx>=0 ? 'datos a '+MONTHS[lastIdx] : 'sin carga aún'}</div>`;
+      <div class="sm-sub">${tieneDatosMesSel ? `datos de ${MONTHS[SELECTED_MONTH_IDX]}` : `sin datos en ${MONTHS[SELECTED_MONTH_IDX]}`}</div>`;
     card.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderHero); };
     grid.appendChild(card);
   });
@@ -1398,6 +1437,7 @@ function renderHero(){
 
 function renderAll(){
   if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
+  populateMonthSelect();
   const steps = [
     ['hero', renderHero], ['tabs', renderTabs], ['resumen de squad', renderSquadSummary],
     ['tarjetas', renderCards], ['insights', renderInsights]
@@ -1405,7 +1445,9 @@ function renderAll(){
   steps.forEach(([name, fn])=>{
     try{ fn(); }catch(e){ console.error(`[Bancor Growth] error en ${name}:`, e); }
   });
-  document.getElementById('demo-flag').style.display = isDemo ? 'inline-block' : 'none';
+  const demoFlag = document.getElementById('demo-flag');
+  demoFlag.style.display = isDemo ? 'inline-block' : 'none';
+  if(isDemo) demoFlag.textContent = 'Datos de ejemplo';
 }
 
 /* ---------- CLOCK + AUTO-CHECK ---------- */
@@ -1449,6 +1491,11 @@ async function init(){
       DATASET = buildWorkingDataset(cache.seed); isDemo = false; ACTIVE_SEGMENT = Object.keys(DATASET)[0];
       renderAll();
       document.getElementById('last-sync').textContent = new Date(cache.fetchedAt).toLocaleString('es-AR');
+    } else {
+      // primera visita de este navegador, sin caché todavía: avisamos que ya está sincronizando solo
+      const flag = document.getElementById('demo-flag');
+      flag.textContent = 'Sincronizando datos reales...';
+      flag.style.display = 'inline-block';
     }
     fetchFromSheet(false);
   }
@@ -1534,8 +1581,5 @@ function initParticles(){
 initParticles();
 init();
 </script>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assistant-widget.css">
-<script src="assistant-widget.js"></script>
 </body>
 </html>
