@@ -1046,19 +1046,31 @@ function renderInsights(){
 /* ---------- SPARKLINE SVG ---------- */
 function sparklineSVG(plan, real){
   const w=220,h=44;
-  const validPlan = plan.filter(v=>v!==null && v!==undefined);
-  const validReal = real.filter(v=>v!==null && v!==undefined);
+  // Rango de meses relevante: desde el primero hasta el último mes con meta definida.
+  // Si siempre usáramos Ene..Dic fijo, con un solo mes de datos (ej. solo Julio)
+  // queda un único punto en el medio y no se ve ninguna línea.
+  let firstIdx = plan.findIndex(v=>v!==null && v!==undefined);
+  let lastIdx = -1;
+  plan.forEach((v,i)=>{ if(v!==null && v!==undefined) lastIdx = i; });
+  if(firstIdx === -1){ firstIdx = 0; lastIdx = plan.length-1; }
+  const rangePlan = plan.slice(firstIdx, lastIdx+1);
+  const rangeReal = real.slice(firstIdx, lastIdx+1);
+
+  const validPlan = rangePlan.filter(v=>v!==null && v!==undefined);
+  const validReal = rangeReal.filter(v=>v!==null && v!==undefined);
   const maxV = Math.max(1, ...validPlan, ...validReal);
   const scaleY = v => h - (v/maxV)*h*0.92 - 2;
-  const n = plan.length;
-  const stepX = w/(n-1);
-  const pathFor = (arr) => arr.map((v,i)=> (v===null||v===undefined)?null:`${i*stepX},${scaleY(v)}`).filter(Boolean).join(' ');
-  const planPts = pathFor(plan);
-  const realPts = pathFor(real);
+  const n = rangePlan.length;
+  const stepX = n>1 ? w/(n-1) : 0;
+  const xFor = i => n>1 ? i*stepX : w/2;
+  const pathFor = (arr) => arr.map((v,i)=> (v===null||v===undefined)?null:`${xFor(i)},${scaleY(v)}`).filter(Boolean).join(' ');
+  const planPts = pathFor(rangePlan);
+  const realPts = pathFor(rangeReal);
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    <polyline points="${planPts}" fill="none" stroke="rgba(244,250,249,0.28)" stroke-width="2" stroke-dasharray="3,3"/>
+    <polyline points="${planPts}" fill="none" stroke="var(--border-strong)" stroke-width="2" stroke-dasharray="3,3"/>
+    ${planPts.split(' ').filter(Boolean).map(p=>{const [x,y]=p.split(','); return `<circle cx="${x}" cy="${y}" r="2" fill="var(--ink-300)"/>`;}).join('')}
     <polyline points="${realPts}" fill="none" stroke="var(--teal-600)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-    ${realPts.split(' ').filter(Boolean).map(p=>{const [x,y]=p.split(','); return `<circle cx="${x}" cy="${y}" r="2.3" fill="var(--teal-600)"/>`;}).join('')}
+    ${realPts.split(' ').filter(Boolean).map(p=>{const [x,y]=p.split(','); return `<circle cx="${x}" cy="${y}" r="2.6" fill="var(--teal-600)"/>`;}).join('')}
   </svg>`;
 }
 
@@ -1071,10 +1083,11 @@ function renderCards(){
     try{
     const d = segData[prod];
     const kpiSafe = d.kpi || '';
+    const monthRitmo = productMonthRitmo(d, SELECTED_MONTH_IDX);
     let badgeClass = 'warn', badgeText = 'sin datos';
-    if(d.ritmo !== null){
-      badgeText = pct(d.ritmo);
-      badgeClass = d.ritmo >= 1.02 ? 'ok' : (d.ritmo <= 0.90 ? 'bad' : 'warn');
+    if(monthRitmo !== null){
+      badgeText = pct(monthRitmo);
+      badgeClass = monthRitmo >= 1.02 ? 'ok' : (monthRitmo <= 0.90 ? 'bad' : 'warn');
     }
     const card = document.createElement('div');
     card.className = 'product-card';
@@ -1089,7 +1102,7 @@ function renderCards(){
             <div class="p-name">${prod}</div>
             <div class="p-sub">${kpiSafe}</div>
           </div>
-          <span class="badge ${badgeClass} has-tip tip-right" data-tip="Ritmo = acumulado real de ${prod} en 2026 (sumando los meses con carga) ÷ objetivo prorrateado a los días efectivamente cargados en cada uno de esos meses. 100% = va exactamente al ritmo esperado.">${badgeText}</span>
+          <span class="badge ${badgeClass} has-tip tip-right" data-tip="Ritmo de ${selMonthLabel} = acumulado real de ese mes ÷ objetivo prorrateado a los días cargados en ${selMonthLabel}. 100% = va exactamente al ritmo esperado para ese mes.">${badgeText}</span>
         </div>
         ${sparklineSVG(d.plan, d.real)}
         <div class="p-figs">
@@ -1130,7 +1143,7 @@ function renderTabs(){
     tab.className = 'tab' + (seg===ACTIVE_SEGMENT ? ' active' : '');
     const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
     tab.innerHTML = `<span class="tab-dot" style="background:${color};"></span>${seg}`;
-    tab.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); };
+    tab.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderInsights); };
     tabsEl.appendChild(tab);
   });
 }
@@ -1417,7 +1430,7 @@ function renderHero(){
       <div class="sm-name">${seg}</div>
       <div class="sm-pct" style="color:${ratio===null?'var(--ink-500)':(ratio>=0.7?'var(--lime-ink)':(ratio<0.4?'var(--magenta-ink)':'var(--ink-900)'))}">${cumplidos}/${total}</div>
       <div class="sm-sub">${tieneDatosMesSel ? `datos de ${MONTHS[SELECTED_MONTH_IDX]}` : `sin datos en ${MONTHS[SELECTED_MONTH_IDX]}`}</div>`;
-    card.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderHero); };
+    card.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderHero); safeRender(renderInsights); };
     grid.appendChild(card);
   });
 
