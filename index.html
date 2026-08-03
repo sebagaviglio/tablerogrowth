@@ -404,7 +404,7 @@
         <circle class="gauge-bg" cx="130" cy="130" r="120"/>
         <circle class="gauge-fg" id="gauge-fg" cx="130" cy="130" r="120"/>
       </svg>
-      <div class="gauge-center has-tip" data-tip="Cantidad de productos, de todos los squads, cuyo ritmo acumulado en 2026 (real ÷ objetivo prorrateado) es 100% o más, sobre el total de productos con objetivo definido.">
+      <div class="gauge-center has-tip" data-tip="Cantidad de productos, de todos los squads, cuyo ritmo EN EL MES ELEGIDO (real de ese mes ÷ objetivo prorrateado a los días cargados ese mes) es 100% o más, sobre el total de productos con objetivo definido. Un mes sin carga no cuenta como cumplido.">
         <div class="pct" id="gauge-pct">0%</div>
         <div class="lbl">Objetivos cumplidos<br>sobre el total</div>
       </div>
@@ -424,7 +424,7 @@
   <div class="main-grid">
     <div class="card-grid" id="card-grid"></div>
     <div class="insights-panel">
-      <h3><span class="lime-dot"></span>Growth Insights</h3>
+      <h3><span class="lime-dot"></span>Growth Insights <span id="insights-title-squad" style="color:var(--ink-500); font-weight:400; font-size:13px;"></span></h3>
       <div class="sub has-tip tip-right" data-tip="Se generan comparando el ritmo (real ÷ objetivo prorrateado) de cada producto: ▲ oportunidad si ritmo ≥ 110%, ▼ atención si ritmo ≤ 85%. Ordenados por magnitud de la desviación.">Lecturas automáticas de la evolución + comentarios del equipo ⓘ</div>
       <div id="insights-feed"></div>
     </div>
@@ -987,10 +987,11 @@ async function fetchFromSheet(showToast=true){
 }
 
 /* ---------- INSIGHTS ---------- */
-function computeInsights(){
+function computeInsights(squadFilter){
   const items = [];
   const noData = [];
   Object.keys(DATASET).forEach(squad=>{
+    if(squadFilter && squad !== squadFilter) return;
     Object.keys(DATASET[squad].products).forEach(prod=>{
       const d = DATASET[squad].products[prod];
       if(d.ritmo === null){
@@ -1009,9 +1010,11 @@ function computeInsights(){
 }
 
 function renderInsights(){
-  const {items, noData} = computeInsights();
+  const {items, noData} = computeInsights(ACTIVE_SEGMENT);
   const feed = document.getElementById('insights-feed');
   feed.innerHTML = '';
+  const titleEl = document.getElementById('insights-title-squad');
+  if(titleEl) titleEl.textContent = ACTIVE_SEGMENT ? `· ${ACTIVE_SEGMENT}` : '';
 
   items.forEach((it,i)=>{
     const el = document.createElement('div');
@@ -1365,6 +1368,21 @@ function renderEvolutivo(seg){
 }
 
 /* ---------- RENDER HERO ---------- */
+// Ritmo de un producto para UN mes puntual (no el acumulado del año) — usa los
+// valores día a día de ese mes específico. Si ese mes no tiene ningún día cargado
+// todavía, devuelve null (no cuenta como "cumplido" solo porque otro mes venía bien).
+function productMonthRitmo(p, monthIdx){
+  const monthLabel = MONTHS[monthIdx];
+  const daily = p.dailyByMonth ? p.dailyByMonth[monthLabel] : null;
+  const target = p.plan[monthIdx];
+  if(!daily || target===null || target===undefined || target<=0) return null;
+  let asOfDay=0, sum=0;
+  daily.forEach((v,i)=>{ if(v!==null && v!==undefined){ sum+=v; asOfDay=i+1; } });
+  if(asOfDay===0) return null;
+  const proratedTarget = target * (asOfDay/DAYS_IN_MONTH[monthIdx]);
+  return proratedTarget>0 ? sum/proratedTarget : null;
+}
+
 function renderHero(){
   let allProducts = [];
   Object.keys(DATASET).forEach(seg=>{
@@ -1372,15 +1390,21 @@ function renderHero(){
       allProducts.push({seg, prod, ...DATASET[seg].products[prod]});
     });
   });
-  const totalCumplidos = allProducts.filter(p=>p.ritmo!==null && p.ritmo>=1).length;
+  const totalCumplidos = allProducts.filter(p=>{
+    const r = productMonthRitmo(p, SELECTED_MONTH_IDX);
+    return r!==null && r>=1;
+  }).length;
   const totalProductos = allProducts.length;
 
-  // cumplidos/total por squad, mes al que corresponden los datos
+  // cumplidos/total por squad, según el mes elegido en el desplegable
   const grid = document.getElementById('squad-mini-grid');
   grid.innerHTML = '';
   Object.keys(DATASET).forEach(seg=>{
     const prods = Object.values(DATASET[seg].products);
-    const cumplidos = prods.filter(p=>p.ritmo!==null && p.ritmo>=1).length;
+    const cumplidos = prods.filter(p=>{
+      const r = productMonthRitmo(p, SELECTED_MONTH_IDX);
+      return r!==null && r>=1;
+    }).length;
     const total = prods.length;
     const ratio = total ? cumplidos/total : null;
     const tieneDatosMesSel = prods.some(p => p.real[SELECTED_MONTH_IDX] !== null && p.real[SELECTED_MONTH_IDX] !== undefined);
@@ -1388,7 +1412,7 @@ function renderHero(){
     const card = document.createElement('div');
     card.className = 'squad-mini-card has-tip' + (seg===ACTIVE_SEGMENT ? ' is-active' : '');
     card.style.borderTopColor = fill;
-    card.setAttribute('data-tip', `Cantidad de productos de ${seg} cuyo ritmo acumulado en 2026 (real ÷ objetivo prorrateado) es 100% o más, sobre el total de productos del squad. Tocá para ver el detalle.`);
+    card.setAttribute('data-tip', `Cantidad de productos de ${seg} cuyo ritmo en ${MONTHS[SELECTED_MONTH_IDX]} (real del mes ÷ objetivo prorrateado a los días cargados ESE mes) es 100% o más, sobre el total de productos del squad. Si ${MONTHS[SELECTED_MONTH_IDX]} todavía no tiene carga, no cuenta como cumplido. Tocá para ver el detalle.`);
     card.innerHTML = `
       <div class="sm-name">${seg}</div>
       <div class="sm-pct" style="color:${ratio===null?'var(--ink-500)':(ratio>=0.7?'var(--lime-ink)':(ratio<0.4?'var(--magenta-ink)':'var(--ink-900)'))}">${cumplidos}/${total}</div>
