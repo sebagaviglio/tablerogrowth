@@ -3,11 +3,17 @@
    body: { message: string, history: [{role:'user'|'assistant', content:string}] }
    resp: { reply: string, dataAsOf: string }
 
-   Env vars requeridas (Vercel → Settings → Environment Variables):
+   Env vars requeridas (Vercel → cada Environment → Environment Variables):
      ANTHROPIC_API_KEY        sk-ant-...
      GROWTH_SHEET_SCRIPT_URL  URL del Apps Script Web App (el mismo que
                                usa el dashboard). Ej:
      https://script.google.com/macros/s/AKfycbw.../exec
+
+   Contrato del Apps Script: GET ?tab=NombreDePestaña devuelve el CSV
+   crudo de esa pestaña (o un string "ERROR: ..." si algo falla). No hay
+   endpoint de resumen — por eso esta función pide "Plan Anual" (objetivos)
+   y la pestaña del mes en curso (datos reales) por separado, y le pasa
+   ambos CSV a Claude junto con la lógica para interpretarlos.
 
    La API key NUNCA se expone al browser: esta función corre server-side.
    ============================================================ */
@@ -86,7 +92,24 @@ module.exports = async function handler(req, res) {
 
 /* ------------------------------------------------------------ *
  * Datos en vivo del Google Sheet (vía el Apps Script existente) *
+ * Contrato real del script: GET ?tab=NombreDePestaña devuelve   *
+ * el CSV crudo de esa única pestaña (o "ERROR: ..." como texto  *
+ * si algo falla). No existe un endpoint de "resumen" — hay que  *
+ * pedir "Plan Anual" (objetivos) y la pestaña del mes en curso  *
+ * (datos reales) por separado.                                 *
  * ------------------------------------------------------------ */
+const MONTH_TABS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+async function fetchTab(tabName) {
+  const url = SHEET_SCRIPT_URL + '?tab=' + encodeURIComponent(tabName);
+  const r = await fetch(url, { method: 'GET' });
+  const text = await r.text();
+  if (text.trim().startsWith('ERROR')) {
+    throw new Error(`Pestaña "${tabName}": ${text.trim()}`);
+  }
+  return text;
+}
+
 async function getLiveContext() {
   const now = Date.now();
   if (dataCache.payload && now - dataCache.fetchedAt < CACHE_TTL_MS) {
@@ -94,28 +117,28 @@ async function getLiveContext() {
   }
 
   if (!SHEET_SCRIPT_URL) {
-    return { summary: null, fetchedAt: new Date().toISOString(), error: 'GROWTH_SHEET_SCRIPT_URL no configurada' };
+    return { planAnualCsv: null, monthCsv: null, fetchedAt: new Date().toISOString(), error: 'GROWTH_SHEET_SCRIPT_URL no configurada' };
   }
 
+  const monthTabName = MONTH_TABS[new Date().getMonth()];
+
   try {
-    // Server-to-server: no hay restricción CORS acá, así que no hace falta
-    // el truco JSONP que usa el dashboard en el browser. Pedimos JSON directo.
-    const url = SHEET_SCRIPT_URL + (SHEET_SCRIPT_URL.includes('?') ? '&' : '?') + 'format=json';
-    const r = await fetch(url, { method: 'GET' });
-    const raw = await r.text();
+    const [planAnualCsv, monthCsv] = await Promise.all([
+      fetchTab('Plan Anual'),
+      fetchTab(monthTabName)
+    ]);
 
-    // Por si el Apps Script solo sabe responder en formato JSONP (callback(...)),
-    // lo desenvolvemos igual.
-    const jsonpMatch = raw.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
-    const jsonText = jsonpMatch ? jsonpMatch[1] : raw;
-    const parsed = JSON.parse(jsonText);
-
-    const payload = { summary: parsed, fetchedAt: new Date().toISOString() };
+    const payload = {
+      planAnualCsv: planAnualCsv.slice(0, 5000),
+      monthTabName,
+      monthCsv: monthCsv.slice(0, 7000),
+      fetchedAt: new Date().toISOString()
+    };
     dataCache = { payload, fetchedAt: now };
     return payload;
   } catch (err) {
     console.error('No se pudo leer el Sheet en vivo', err);
-    return { summary: null, fetchedAt: new Date().toISOString(), error: String(err) };
+    return { planAnualCsv: null, monthCsv: null, monthTabName, fetchedAt: new Date().toISOString(), error: String(err.message || err) };
   }
 }
 
@@ -124,8 +147,29 @@ async function getLiveContext() {
  * tono + límites                                                *
  * ------------------------------------------------------------ */
 function buildSystemPrompt(liveContext) {
-  const dataBlock = liveContext.summary
-    ? `Estado actual del Sheet (leído en vivo, ${liveContext.fetchedAt}):\n${JSON.stringify(liveContext.summary).slice(0, 6000)}`
+  const dataBlock = liveContext.planAnualCsv && liveContext.monthCsv
+    ? `Datos crudos leídos en vivo del Sheet (${liveContext.fetchedAt}).
+
+--- Pestaña "Plan Anual" (objetivos mensuales, fuente de verdad) ---
+${liveContext.planAnualCsv}
+
+--- Pestaña "${liveContext.monthTabName}" (mes en curso, datos reales día a día) ---
+${liveContext.monthCsv}
+
+Cómo leer estos CSV:
+- "Plan Anual": columnas Squad | Producto | KPI / Métrica | Ene...Dic. Cada celda de
+  mes es el objetivo de ese producto para ese mes. Usá SIEMPRE esta pestaña para la
+  meta mensual — nunca la fila "META MES" de la pestaña del mes (tiene un desalineamiento
+  de columna conocido en Habitualidad/Jun, así que ese dato no es confiable ahí).
+- Pestaña del mes en curso: por cada squad hay un bloque que arranca con una fila
+  "SQUAD · PO: nombre · Own: nombre", seguido de una grilla diaria (columnas: Día |
+  Fecha | producto1 | producto2 ... | TOTAL) hasta una fila "TOTAL ACUM" (ese es el
+  acumulado real de cada producto a la fecha). Ignorá las filas "META MES",
+  "% CUMPL.", "META PROP." y "% vs M.PROP" de esta pestaña — el dashboard ya sabe
+  que están desalineadas y las recalcula solo desde Plan Anual; hacé lo mismo vos.
+- Para calcular ritmo de un producto: tomá su objetivo mensual de Plan Anual (columna
+  del mes en curso), prorrateado a la cantidad de días con carga real (filas con datos
+  antes de "TOTAL ACUM"), y comparalo contra el acumulado real de esa fila.`
     : `No se pudo leer el Sheet en vivo en este momento (${liveContext.error || 'sin detalle'}). Trabajá solo con lo que el usuario te cuente y avisale explícitamente que no tenés los números actualizados a mano.`;
 
   return `Sos el Asistente de Growth de Bancor: un consultor senior de Growth Digital
