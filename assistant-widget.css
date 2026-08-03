@@ -1,0 +1,365 @@
+/* ============================================================
+   Asistente de Growth — Bancor
+   Burbuja flotante "liquid glass" que se expande/contrae.
+   Inspirado en el comportamiento del tab bar nativo de
+   expo-native-compact-tabs (cápsula flotante, water-drop,
+   compacto sin perder identidad) traducido a CSS/JS para web.
+   ============================================================ */
+
+#ga-root, #ga-root *{ color-scheme: dark; }
+
+:root{
+  --ga-teal: #00A39C;
+  --ga-teal-ink: #003532;
+  --ga-lime: #ADEB00;
+  --ga-orange: #EE632C;
+  --ga-glass-bg: rgba(6, 16, 15, 0.58);
+  --ga-glass-bg-bubble: rgba(4, 12, 11, 0.62);
+  --ga-glass-border: rgba(255, 255, 255, 0.14);
+  --ga-glass-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), 0 1px 1px rgba(0,0,0,0.1);
+  --ga-text: #EAF6F4;
+  --ga-text-dim: rgba(234, 246, 244, 0.5);
+  --ga-radius-bubble: 999px;
+  --ga-radius-panel: 30px;
+  --ga-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ga-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --ga-font-display: 'Space Grotesk', 'Inter', sans-serif;
+  --ga-font-body: 'Inter', sans-serif;
+  --ga-font-mono: 'IBM Plex Mono', monospace;
+}
+
+#ga-root{
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  justify-content: center;
+  z-index: 9999;
+  pointer-events: none;
+  font-family: var(--ga-font-body);
+}
+
+#ga-root *{ box-sizing: border-box; }
+
+/* -------- shared glass surface -------- */
+.ga-surface{
+  background: var(--ga-glass-bg);
+  -webkit-backdrop-filter: blur(36px) saturate(190%);
+  backdrop-filter: blur(36px) saturate(190%);
+  border: 1px solid var(--ga-glass-border);
+  box-shadow:
+    var(--ga-glass-shadow),
+    inset 0 1px 0 rgba(255,255,255,0.35),   /* filo de luz arriba, como vidrio real */
+    inset 0 -1px 0 rgba(0,0,0,0.3);         /* sombra sutil abajo, le da volumen */
+  position: relative;
+}
+/* brillo especular, tipo reflejo en vidrio curvo bajo luz */
+.ga-surface::before{
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.03) 26%, rgba(255,255,255,0) 50%);
+  pointer-events: none;
+}
+/* raya de luz vertical cerca del borde izquierdo — detalle Liquid Glass */
+.ga-surface::after{
+  content: '';
+  position: absolute;
+  top: 14%; bottom: 14%; left: 14px;
+  width: 1.5px;
+  border-radius: 2px;
+  background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.65) 45%, rgba(255,255,255,0.65) 55%, transparent);
+  opacity: 0.8;
+  pointer-events: none;
+}
+#ga-shell.ga-open .ga-surface::after{ opacity: 0; }
+
+/* -------- the shell that morphs between bubble <-> panel -------- */
+#ga-shell{
+  pointer-events: auto;
+  position: relative;
+  margin-bottom: 20px;
+  width: min(300px, calc(100vw - 32px));
+  height: 58px;
+  border-radius: var(--ga-radius-bubble);
+  transition:
+    width 0.55s var(--ga-spring),
+    height 0.55s var(--ga-spring),
+    border-radius 0.5s var(--ga-spring),
+    bottom 0.4s var(--ga-ease);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#ga-shell.ga-open{
+  width: min(400px, calc(100vw - 32px));
+  height: min(608px, calc(100vh - 120px));
+  border-radius: var(--ga-radius-panel);
+}
+
+/* pulse ring — "ritmo" heartbeat, ties the assistant to the dashboard's
+   own metric: a slow-moving glow in teal->lime signals "estoy leyendo tus datos" */
+#ga-pulse{
+  position: absolute;
+  inset: -8px;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, var(--ga-teal), var(--ga-lime), transparent 40%, var(--ga-teal));
+  opacity: 0.5;
+  filter: blur(14px);
+  animation: ga-spin 7s linear infinite;
+  transition: opacity 0.4s ease;
+}
+#ga-shell.ga-open #ga-pulse{ opacity: 0; }
+@keyframes ga-spin{ to{ transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){
+  #ga-pulse{ animation: none; }
+}
+
+/* -------- collapsed bubble content: barra tipo "Search or Ask" -------- */
+#ga-bubble-face{
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 22px;
+  cursor: pointer;
+  background: var(--ga-glass-bg-bubble);
+  transition: opacity 0.28s var(--ga-ease), transform 0.18s var(--ga-spring);
+}
+#ga-shell.ga-open #ga-bubble-face{ opacity: 0; pointer-events: none; }
+#ga-bubble-face:active{ transform: scale(0.97); }
+
+#ga-bubble-placeholder{
+  flex: 1;
+  min-width: 0;
+  font-family: var(--ga-font-body);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ga-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#ga-bubble-icon{
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+}
+#ga-bubble-icon svg{ width: 19px; height: 19px; color: var(--ga-text); }
+
+.ga-dot{
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--ga-lime);
+  border: 2px solid rgba(4,12,11,0.9);
+  display: none;
+}
+.ga-dot.ga-show{ display: block; }
+
+
+/* -------- expanded panel content -------- */
+#ga-panel{
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.32s ease 0.1s, transform 0.32s var(--ga-ease) 0.1s;
+  background: rgba(4, 12, 11, 0.32);
+  -webkit-backdrop-filter: blur(56px) saturate(220%);
+  backdrop-filter: blur(56px) saturate(220%);
+  pointer-events: none; /* clave: si no, tapa los clics de la burbuja cuando está "cerrado" */
+}
+#ga-shell.ga-open #ga-panel{ opacity: 1; transform: translateY(0); pointer-events: auto; }
+
+#ga-header{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+#ga-header-icon{
+  width: 34px; height: 34px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--ga-teal), var(--ga-teal-ink));
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+#ga-header-icon svg{ width: 18px; height: 18px; color: #fff; }
+#ga-header-text{ flex: 1; min-width: 0; }
+#ga-header-title{
+  font-family: var(--ga-font-display);
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ga-text);
+  line-height: 1.2;
+}
+#ga-header-sub{
+  font-family: var(--ga-font-mono);
+  font-size: 10.5px;
+  color: var(--ga-text-dim);
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+#ga-header-sub .ga-live-dot{
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ga-lime);
+  box-shadow: 0 0 0 0 rgba(173,235,0,0.6);
+  animation: ga-live 2s ease-out infinite;
+}
+@keyframes ga-live{
+  0%{ box-shadow: 0 0 0 0 rgba(173,235,0,0.5); }
+  70%{ box-shadow: 0 0 0 6px rgba(173,235,0,0); }
+  100%{ box-shadow: 0 0 0 0 rgba(173,235,0,0); }
+}
+#ga-close{
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,0.08);
+  color: var(--ga-text);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+#ga-close:hover{ background: rgba(255,255,255,0.16); }
+#ga-close svg{ width: 14px; height: 14px; }
+
+#ga-messages{
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+}
+#ga-messages::-webkit-scrollbar{ width: 6px; }
+#ga-messages::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+.ga-msg{
+  max-width: 86%;
+  font-size: 13.5px;
+  line-height: 1.5;
+  padding: 10px 13px;
+  border-radius: 16px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.ga-msg-assistant{
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: var(--ga-text);
+  border-bottom-left-radius: 5px;
+}
+.ga-msg-user{
+  align-self: flex-end;
+  background: var(--ga-teal);
+  color: #fff;
+  border-bottom-right-radius: 5px;
+}
+.ga-msg-meta{
+  font-family: var(--ga-font-mono);
+  font-size: 9.5px;
+  color: var(--ga-text-dim);
+  margin-top: 4px;
+  padding: 0 4px;
+}
+
+#ga-typing{
+  align-self: flex-start;
+  display: flex;
+  gap: 4px;
+  padding: 10px 13px;
+}
+#ga-typing span{
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--ga-lime);
+  opacity: 0.5;
+  animation: ga-bounce 1.1s ease-in-out infinite;
+}
+#ga-typing span:nth-child(2){ animation-delay: 0.15s; }
+#ga-typing span:nth-child(3){ animation-delay: 0.3s; }
+@keyframes ga-bounce{
+  0%, 60%, 100%{ transform: translateY(0); opacity: 0.4; }
+  30%{ transform: translateY(-4px); opacity: 1; }
+}
+
+#ga-empty{
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--ga-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(234, 246, 244, 0.22);
+}
+
+#ga-inputbar{
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+#ga-input{
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  background: rgba(255,255,255,0.07);
+  border-radius: 16px;
+  padding: 10px 13px;
+  font-family: var(--ga-font-body);
+  font-size: 13.5px;
+  color: var(--ga-text);
+  max-height: 90px;
+  line-height: 1.4;
+}
+#ga-input::placeholder{ color: var(--ga-text-dim); }
+#ga-send{
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ga-teal);
+  color: #fff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.15s var(--ga-spring), background 0.2s ease;
+}
+#ga-send:hover{ background: var(--ga-teal-ink); }
+#ga-send:active{ transform: scale(0.9); }
+#ga-send:disabled{ opacity: 0.4; cursor: default; }
+#ga-send svg{ width: 15px; height: 15px; }
+
+@media (max-width: 480px){
+  #ga-shell{ margin-bottom: 14px; width: calc(100vw - 24px); }
+  #ga-shell.ga-open{
+    width: calc(100vw - 20px);
+    height: calc(100vh - 90px);
+  }
+}
