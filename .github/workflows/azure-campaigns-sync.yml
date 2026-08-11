@@ -1,0 +1,31 @@
+name: Sync Azure DevOps campaigns to Sheet
+
+on:
+  schedule:
+    # Corre una vez al día a las 09:00 UTC (~06:00 Argentina). Ajustar horario si hace falta.
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}  # permite correrlo a mano desde la pestaña Actions, útil para probar
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests gspread google-auth
+
+      - name: Run sync script
+        env:
+          AZURE_ORG: ${{ vars.AZURE_ORG }}
+          AZURE_PROJECT: ${{ vars.AZURE_PROJECT }}
+          AZURE_DEVOPS_PAT: ${{ secrets.AZURE_DEVOPS_PAT }}
+          GOOGLE_SERVICE_ACCOUNT_JSON_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: python azure_to_sheets.py
