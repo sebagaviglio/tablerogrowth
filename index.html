@@ -332,7 +332,9 @@
     transition: all .25s ease; box-shadow: var(--shadow-sm);
   }
   .campaign-card:hover{ transform: translateY(-3px); border-color: var(--teal-500); box-shadow: var(--shadow-md); }
-  .campaign-card .cc-id-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--ink-500); letter-spacing:0.4px; margin-bottom:8px; }
+  .campaign-card .cc-id-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--teal-ink); letter-spacing:0.4px; margin-bottom:6px; text-decoration:none; display:inline-block; }
+  .campaign-card .cc-id-tag:hover{ text-decoration:underline; }
+  .campaign-card .cc-title{ font-family: var(--font-display); font-size:13.5px; font-weight:600; color: var(--ink-900); line-height:1.3; margin-bottom:8px; }
   .campaign-card .cc-interp-main{ font-size:12.5px; line-height:1.55; color: var(--ink-900); }
   .cp-empty{ font-size:12.5px; color: var(--ink-500); padding: 6px 0; }
 
@@ -1556,6 +1558,11 @@ function renderHero(){
 }
 
 /* ---------- CAMPAÑAS (render) ---------- */
+const AZURE_DEVOPS_ORG = 'BancorDigital';
+const AZURE_DEVOPS_PROJECT = 'Servicios';
+function azureWorkItemUrl(id){
+  return `https://dev.azure.com/${AZURE_DEVOPS_ORG}/${AZURE_DEVOPS_PROJECT}/_workitems/edit/${encodeURIComponent(id)}`;
+}
 // Cada squad tiene su propio SCT en Azure DevOps (confirmado); mapeo por
 // palabra clave del Area Path -> nombre de squad tal como lo usa el resto
 // del tablero. Orden importa: "empresas" se chequea antes que "adquisic"
@@ -1626,7 +1633,8 @@ function renderCampaigns(){
 
   wrap.innerHTML = `<div class="campaigns-grid">${campsDelSquad.map(c=>`
     <div class="campaign-card">
-      <div class="cc-id-tag">#${c.id || '—'}</div>
+      <a class="cc-id-tag" href="${azureWorkItemUrl(c.id)}" target="_blank" rel="noopener noreferrer">#${c.id || '—'} ↗</a>
+      <div class="cc-title">${c.nombre || '(sin nombre)'}</div>
       <div class="cc-interp-main">${c.interpretacion || '<span class="cp-empty" style="padding:0;">Sin interpretación cargada todavía.</span>'}</div>
     </div>`).join('')}</div>`;
 }
