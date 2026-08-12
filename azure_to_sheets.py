@@ -23,7 +23,10 @@ Columnas que se exportan por campaña:
     de una corrida anterior.
   - Nombre: System.Title tal cual.
   - Estado: System.State.
-  - Fecha inicio / Fecha fin: sin dato disponible hoy, quedan vacías.
+  - Fecha inicio / Fecha fin: de los campos estándar de Azure DevOps
+    Microsoft.VSTS.Scheduling.StartDate / FinishDate. No todos los work
+    items los tienen cargados — si están vacíos en Azure DevOps, quedan
+    vacíos también en el Sheet.
   - Squad/Canal: último segmento del Area Path.
   - Presupuesto: se busca una línea "Presupuesto: ..." en la Description
     (texto libre); si no está, queda vacío.
@@ -85,6 +88,8 @@ FIELDS = [
     "System.State",
     "System.AreaPath",
     "System.Description",
+    "Microsoft.VSTS.Scheduling.StartDate",
+    "Microsoft.VSTS.Scheduling.FinishDate",
 ]
 
 SHEET_HEADERS = [
@@ -163,6 +168,14 @@ def squad_from_area_path(area_path):
     return area_path.strip().split("\\")[-1]
 
 
+def format_azure_date(raw):
+    """Azure DevOps devuelve fechas como '2026-08-01T00:00:00Z'; nos quedamos
+    solo con la parte yyyy-MM-dd para el Sheet."""
+    if not raw:
+        return ""
+    return str(raw).split("T")[0]
+
+
 def generate_ai_interpretation(title, description_html):
     """Le pide a Claude un párrafo interpretando de qué se trata la campaña."""
     description_text = strip_html(description_html).strip()
@@ -221,6 +234,7 @@ def load_existing_interpretations(worksheet):
         id_idx = header.index("id")
         interp_idx = header.index("interpretación ia")
     except ValueError:
+        # Pestaña de una corrida anterior sin estas columnas todavía.
         return {}
     existing = {}
     for row in rows[1:]:
@@ -251,8 +265,8 @@ def flatten_work_item(item, existing_interpretations):
         wid,
         title,
         state,
-        "",
-        "",
+        format_azure_date(fields.get("Microsoft.VSTS.Scheduling.StartDate", "")),
+        format_azure_date(fields.get("Microsoft.VSTS.Scheduling.FinishDate", "")),
         squad_from_area_path(area_path),
         extract_budget(description),
         interpretation,
