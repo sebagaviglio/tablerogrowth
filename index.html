@@ -327,22 +327,13 @@
   .campaigns-panel h4{ font-family: var(--font-display); font-size:14px; font-weight:600; color:var(--ink-900); }
   .campaigns-panel .cp-sub{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); }
   .campaigns-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
-  .campaign-squad-group{ margin-bottom:20px; }
-  .campaign-squad-group:last-child{ margin-bottom:0; }
-  .campaign-squad-header{ display:flex; align-items:center; gap:10px; margin-bottom:12px; }
-  .campaign-squad-header .csh-count{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); }
-  .campaign-squad-header .csh-line{ flex:1; height:1px; background: var(--border); }
   .campaign-card{
     background: var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px;
     transition: all .25s ease; box-shadow: var(--shadow-sm);
   }
   .campaign-card:hover{ transform: translateY(-3px); border-color: var(--teal-500); box-shadow: var(--shadow-md); }
-  .campaign-card .cc-name{ font-family: var(--font-display); font-size:14px; font-weight:600; color:var(--ink-900); line-height:1.25; }
-  .campaign-card .cc-dates{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); margin-top:5px; }
-  .campaign-card .cc-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; flex-wrap:wrap; }
-  .campaign-card .cc-budget{ font-family: var(--font-mono); font-size:12.5px; color: var(--ink-900); }
-  .campaign-card .cc-ai{ font-size:12px; line-height:1.5; color: var(--ink-500); margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); }
-  .campaign-card .cc-ai .cc-ai-tag{ font-family: var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:0.6px; color: var(--lavender-ink); display:block; margin-bottom:4px; }
+  .campaign-card .cc-id-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--ink-500); letter-spacing:0.4px; margin-bottom:8px; }
+  .campaign-card .cc-interp-main{ font-size:12.5px; line-height:1.55; color: var(--ink-900); }
   .cp-empty{ font-size:12.5px; color: var(--ink-500); padding: 6px 0; }
 
   /* ---------- INSIGHTS FEED ---------- */
@@ -462,9 +453,8 @@
     <div class="cp-head">
       <div>
         <h4>Campañas vigentes</h4>
-        <div class="cp-sub">Fuente: Azure DevOps · work items tipo "Campaña", State = Active</div>
+        <div class="cp-sub" id="campaigns-subtitle">Fuente: Azure DevOps</div>
       </div>
-      <div class="cp-sub has-tip tip-right" data-tip="Se muestran todas las campañas vigentes traídas de Azure DevOps, agrupadas por squad (según el Area Path de cada work item en Azure DevOps) — el mismo criterio de agrupación que usan los Growth Insights.">Agrupadas por squad, como los Insights ⓘ</div>
     </div>
     <div id="campaigns-groups"></div>
   </div>
@@ -553,6 +543,7 @@ const DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
 // permite pararse en otro mes para revisar historia o adelantarse a ver si ya
 // hay carga en el mes nuevo.
 let SELECTED_MONTH_IDX = new Date().getMonth();
+const CURRENT_MONTH_IDX = new Date().getMonth(); // mes real de hoy, no cambia con el selector
 
 function populateMonthSelect(){
   const sel = document.getElementById('month-select');
@@ -765,6 +756,7 @@ function parseCampaignsTab(rows){
   if(!rows || !rows.length) return [];
   const header = rows[0].map(h => norm(h).toLowerCase());
   const idx = {
+    id: header.findIndex(h => h === 'id'),
     nombre: header.findIndex(h => h.startsWith('nombre')),
     estado: header.findIndex(h => h.startsWith('estado')),
     inicio: header.findIndex(h => h.includes('inicio')),
@@ -781,6 +773,7 @@ function parseCampaignsTab(rows){
     const presupuestoRaw = idx.presupuesto>=0 ? (row[idx.presupuesto]||'') : '';
     const presupuesto = parseFloat(String(presupuestoRaw).replace(/[^0-9.-]/g,''));
     out.push({
+      id: idx.id>=0 ? norm(row[idx.id]) : '',
       nombre,
       estado: idx.estado>=0 ? norm(row[idx.estado]) : '',
       inicio: idx.inicio>=0 ? norm(row[idx.inicio]) : '',
@@ -1230,7 +1223,7 @@ function renderTabs(){
     tab.className = 'tab' + (seg===ACTIVE_SEGMENT ? ' active' : '');
     const color = SQUAD_FILLS[seg] || 'var(--teal-500)';
     tab.innerHTML = `<span class="tab-dot" style="background:${color};"></span>${seg}`;
-    tab.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderInsights); };
+    tab.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderInsights); safeRender(renderCampaigns); };
     tabsEl.appendChild(tab);
   });
 }
@@ -1517,7 +1510,7 @@ function renderHero(){
       <div class="sm-name">${seg}</div>
       <div class="sm-pct" style="color:${ratio===null?'var(--ink-500)':(ratio>=0.7?'var(--lime-ink)':(ratio<0.4?'var(--magenta-ink)':'var(--ink-900)'))}">${cumplidos}/${total}</div>
       <div class="sm-sub">${tieneDatosMesSel ? `datos de ${MONTHS[SELECTED_MONTH_IDX]}` : `sin datos en ${MONTHS[SELECTED_MONTH_IDX]}`}</div>`;
-    card.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderHero); safeRender(renderInsights); };
+    card.onclick = ()=>{ ACTIVE_SEGMENT = seg; safeRender(renderTabs); safeRender(renderCards); safeRender(renderSquadSummary); safeRender(renderHero); safeRender(renderInsights); safeRender(renderCampaigns); };
     grid.appendChild(card);
   });
 
@@ -1563,6 +1556,18 @@ function renderHero(){
 }
 
 /* ---------- CAMPAÑAS (render) ---------- */
+// Cada squad tiene su propio SCT en Azure DevOps (confirmado); mapeo por
+// palabra clave del Area Path -> nombre de squad tal como lo usa el resto
+// del tablero. Orden importa: "empresas" se chequea antes que "adquisic"
+// porque el SCT de Empresas también contiene la palabra "Adquisicion".
+function mapAreaPathToSquad(areaPathSegment){
+  const s = (areaPathSegment || '').toLowerCase();
+  if(s.includes('bezza')) return 'Bezza Hub';
+  if(s.includes('habitualidad')) return 'Habitualidad';
+  if(s.includes('empresas')) return 'Empresas';
+  if(s.includes('adquisic') || s.includes('crossel')) return 'Adquisición y Crosselling';
+  return null; // no matchea ningún squad conocido -> no se muestra en ninguna pestaña
+}
 function parseDateLoose(s){
   if(!s) return null;
   // azure_to_sheets.py manda fechas en formato ISO (yyyy-MM-dd) vía el gviz/Apps Script;
@@ -1594,66 +1599,36 @@ function fmtBudget(n){
 }
 function renderCampaigns(){
   const wrap = document.getElementById('campaigns-groups');
+  const sub = document.getElementById('campaigns-subtitle');
   if(!wrap) return;
+
+  // Desactivado para meses anteriores al actual: las campañas son "vigentes
+  // hoy", no tiene sentido mostrarlas al mirar el histórico de un mes pasado.
+  if(SELECTED_MONTH_IDX < CURRENT_MONTH_IDX){
+    if(sub) sub.textContent = `No disponible para ${MONTHS[SELECTED_MONTH_IDX]} — las campañas vigentes solo se muestran para el mes actual (${MONTHS[CURRENT_MONTH_IDX]}).`;
+    wrap.innerHTML = `<div class="cp-empty">Elegí ${MONTHS[CURRENT_MONTH_IDX]} en el selector de arriba para ver las campañas vigentes.</div>`;
+    return;
+  }
+
+  if(sub) sub.textContent = `Fuente: Azure DevOps · squad activo: ${ACTIVE_SEGMENT || '—'}`;
+
   if(!CAMPAIGNS.length){
     wrap.innerHTML = `<div class="cp-empty">Todavía no hay datos de la pestaña "Campañas" (o el sync diario de Azure DevOps no corrió todavía).</div>`;
     return;
   }
 
-  // Agrupar por squad (tal como viene del Area Path de Azure DevOps).
-  const groups = {};
-  CAMPAIGNS.forEach(c=>{
-    const key = c.squad || 'Sin squad asignado';
-    (groups[key] = groups[key] || []).push(c);
-  });
+  const campsDelSquad = CAMPAIGNS.filter(c => mapAreaPathToSquad(c.squad) === ACTIVE_SEGMENT);
 
-  // Orden: primero los 4 squads "conocidos" del tablero (mismo orden que SQUAD_COLORS),
-  // en el mismo lenguaje visual que los Insights; el resto, alfabético al final.
-  const knownOrder = Object.keys(SQUAD_COLORS);
-  const allKeys = Object.keys(groups);
-  allKeys.sort((a,b)=>{
-    const ia = knownOrder.indexOf(a), ib = knownOrder.indexOf(b);
-    if(ia!==-1 && ib!==-1) return ia-ib;
-    if(ia!==-1) return -1;
-    if(ib!==-1) return 1;
-    return a.localeCompare(b, 'es');
-  });
+  if(!campsDelSquad.length){
+    wrap.innerHTML = `<div class="cp-empty">No hay campañas vigentes para el squad "${ACTIVE_SEGMENT}".</div>`;
+    return;
+  }
 
-  wrap.innerHTML = allKeys.map(squadKey=>{
-    const camps = groups[squadKey];
-    const squadColor = SQUAD_COLORS[squadKey] || 'var(--ink-700)';
-    const squadFill = SQUAD_FILLS[squadKey] || 'var(--ink-300)';
-    const cardsHTML = camps.map(c=>{
-      const overlaps = campaignOverlapsSelectedMonth(c);
-      let tag, tagClass;
-      if(overlaps === true){ tag = `Vigente en ${MONTHS[SELECTED_MONTH_IDX]}`; tagClass = 'ok'; }
-      else if(overlaps === false){ tag = 'Fuera del mes elegido'; tagClass = 'warn'; }
-      else { tag = 'Sin fechas cargadas'; tagClass = 'warn'; }
-      return `
-        <div class="campaign-card">
-          <div class="card-head">
-            <div class="titles">
-              <div class="cc-name">${c.nombre}</div>
-              <div class="cc-dates">${fmtDate(c.inicio)} — ${fmtDate(c.fin)}</div>
-            </div>
-            <span class="badge ${tagClass}">${tag}</span>
-          </div>
-          <div class="cc-foot">
-            <span class="cc-budget">${fmtBudget(c.presupuesto)}</span>
-          </div>
-          ${c.interpretacion ? `<div class="cc-ai"><span class="cc-ai-tag">✦ Interpretación IA</span>${c.interpretacion}</div>` : ''}
-        </div>`;
-    }).join('');
-    return `
-      <div class="campaign-squad-group">
-        <div class="campaign-squad-header">
-          <span class="squad-chip" style="background:${squadFill}22; color:${squadColor}; border:1px solid ${squadFill}55;">${squadKey}</span>
-          <span class="csh-count">${camps.length} campaña${camps.length===1?'':'s'}</span>
-          <span class="csh-line"></span>
-        </div>
-        <div class="campaigns-grid">${cardsHTML}</div>
-      </div>`;
-  }).join('');
+  wrap.innerHTML = `<div class="campaigns-grid">${campsDelSquad.map(c=>`
+    <div class="campaign-card">
+      <div class="cc-id-tag">#${c.id || '—'}</div>
+      <div class="cc-interp-main">${c.interpretacion || '<span class="cp-empty" style="padding:0;">Sin interpretación cargada todavía.</span>'}</div>
+    </div>`).join('')}</div>`;
 }
 
 function renderAll(){
