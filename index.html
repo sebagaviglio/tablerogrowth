@@ -85,12 +85,7 @@
     margin-bottom: 26px;
   }
   .brand{ display:flex; align-items:center; gap:14px; }
-  .brand-mark{ position:relative; width:44px; height:44px; flex-shrink:0; }
-  .brand-mark svg{ width:100%; height:100%; }
-  .brand-text .wordmark{
-    font-family: var(--font-display); font-weight:700; font-size: 22px;
-    letter-spacing: 0.3px; color: var(--ink-900); line-height:1;
-  }
+  .brand-logo{ height:34px; width:auto; flex-shrink:0; display:block; }
   .brand-text .tagline{
     font-family: var(--font-mono); font-size: 10.5px; text-transform:uppercase;
     letter-spacing: 1.4px; color: var(--teal-600); margin-top: 5px;
@@ -392,11 +387,8 @@
 <div class="wrap">
   <header>
     <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 46 46"><path d="M23 4 A19 19 0 0 1 42 23 L23 23 Z" fill="var(--orange-fill)"/><circle cx="23" cy="23" r="18" fill="none" stroke="var(--ink-900)" stroke-width="3.4"/></svg>
-      </div>
+      <img src="Logo_Bancor_RGB-02.png" alt="Bancor" class="brand-logo">
       <div class="brand-text">
-        <div class="wordmark">BANCOR</div>
         <div class="tagline">Growth · Panel Comercial 2026</div>
       </div>
     </div>
