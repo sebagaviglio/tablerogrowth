@@ -163,16 +163,16 @@ async function getBaseContext() {
     coreError = String(err.message || err);
   }
 
-  // "Campañas" es un plus: si falla, seguimos igual con el resto de la data.
+  // "Campañas" y "Equipo" son un plus: si fallan, seguimos igual con el resto.
   let campaignsCsv = null, campaignsError = null;
-  try {
-    campaignsCsv = (await fetchTab('Campañas')).slice(0, 6000);
-  } catch (err) {
-    campaignsError = String(err.message || err);
-  }
+  let equipoCsv = null, equipoError = null;
+  await Promise.all([
+    fetchTab('Campañas').then((csv) => { campaignsCsv = csv.slice(0, 6000); }).catch((err) => { campaignsError = String(err.message || err); }),
+    fetchTab('Equipo').then((csv) => { equipoCsv = csv.slice(0, 3000); }).catch((err) => { equipoError = String(err.message || err); })
+  ]);
 
   if (coreError) {
-    return { planAnualCsv: null, monthCsv: null, currentMonthTab, campaignsCsv, campaignsError, fetchedAt: new Date().toISOString(), error: coreError };
+    return { planAnualCsv: null, monthCsv: null, currentMonthTab, campaignsCsv, campaignsError, equipoCsv, equipoError, fetchedAt: new Date().toISOString(), error: coreError };
   }
 
   const payload = {
@@ -181,6 +181,8 @@ async function getBaseContext() {
     monthCsv: monthCsv.slice(0, 7000),
     campaignsCsv,
     campaignsError,
+    equipoCsv,
+    equipoError,
     fetchedAt: new Date().toISOString()
   };
   baseCache = { payload, fetchedAt: now };
@@ -252,6 +254,16 @@ function buildSystemPrompt(liveContext) {
         ? `\n(No se pudo leer la pestaña "Campañas" en este momento: ${liveContext.campaignsError}. Si preguntan por campañas, avisá que no la tenés disponible ahora.)`
         : '';
 
+    const equipoBlock = liveContext.equipoCsv
+      ? `\n--- Pestaña "Equipo" (personas de Growth) ---\n${liveContext.equipoCsv}\n\nUsala para identificar quién es el PO/Owner de un squad o producto cuando
+  te lo pregunten, o para dar contexto de a quién recurrir. No es una pestaña
+  de desempeño — no evalúes, rankees ni compares personas entre sí a partir
+  de los números de otras pestañas; los datos de ritmo son del squad/producto,
+  no de la persona.`
+      : liveContext.equipoError
+        ? `\n(No se pudo leer la pestaña "Equipo" en este momento: ${liveContext.equipoError}.)`
+        : '';
+
     dataBlock = `Datos crudos leídos en vivo del Sheet (${liveContext.fetchedAt}).
 
 --- Pestaña "Plan Anual" (objetivos mensuales, fuente de verdad) ---
@@ -261,6 +273,7 @@ ${liveContext.planAnualCsv}
 ${liveContext.monthCsv}
 ${extraBlocks}
 ${campaignsBlock}
+${equipoBlock}
 
 Cómo leer estos CSV:
 - "Plan Anual": columnas Squad | Producto | KPI / Métrica | Ene...Dic. Cada celda de
@@ -348,5 +361,9 @@ si piden profundidad, la das.
 5. Si preguntan algo totalmente fuera del alcance de Growth Bancor, decilo con
    buena onda y traé la conversación de vuelta a lo que sí podés ayudar.
 6. Si el Sheet no se pudo leer en vivo, decilo apenas sea relevante para la
-   respuesta — no simules tener datos frescos que no tenés.`;
+   respuesta — no simules tener datos frescos que no tenés.
+7. Usá la pestaña "Equipo" solo para identificar quién es quién (PO/Owner de
+   un squad, a quién recurrir). Nunca cruces esos nombres con el ritmo u otras
+   métricas para evaluar, rankear o hacer juicios sobre el desempeño de una
+   persona — el ritmo mide al squad/producto, no a los individuos.`;
 }
