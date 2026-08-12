@@ -221,7 +221,6 @@ def load_existing_interpretations(worksheet):
         id_idx = header.index("id")
         interp_idx = header.index("interpretación ia")
     except ValueError:
-        # Pestaña de una corrida anterior sin estas columnas todavía.
         return {}
     existing = {}
     for row in rows[1:]:
@@ -252,8 +251,8 @@ def flatten_work_item(item, existing_interpretations):
         wid,
         title,
         state,
-        "",  # Fecha inicio — sin dato disponible hoy
-        "",  # Fecha fin — sin dato disponible hoy
+        "",
+        "",
         squad_from_area_path(area_path),
         extract_budget(description),
         interpretation,
