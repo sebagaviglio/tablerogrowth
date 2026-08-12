@@ -341,6 +341,8 @@
   .campaign-card .cc-dates{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); margin-top:5px; }
   .campaign-card .cc-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; flex-wrap:wrap; }
   .campaign-card .cc-budget{ font-family: var(--font-mono); font-size:12.5px; color: var(--ink-900); }
+  .campaign-card .cc-ai{ font-size:12px; line-height:1.5; color: var(--ink-500); margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); }
+  .campaign-card .cc-ai .cc-ai-tag{ font-family: var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:0.6px; color: var(--lavender-ink); display:block; margin-bottom:4px; }
   .cp-empty{ font-size:12.5px; color: var(--ink-500); padding: 6px 0; }
 
   /* ---------- INSIGHTS FEED ---------- */
@@ -769,6 +771,7 @@ function parseCampaignsTab(rows){
     fin: header.findIndex(h => h.includes('fin')),
     squad: header.findIndex(h => h.includes('squad') || h.includes('canal')),
     presupuesto: header.findIndex(h => h.includes('presupuesto')),
+    interpretacion: header.findIndex(h => h.includes('interpretaci')),
   };
   const out = [];
   for(let r=1; r<rows.length; r++){
@@ -784,6 +787,7 @@ function parseCampaignsTab(rows){
       fin: idx.fin>=0 ? norm(row[idx.fin]) : '',
       squad: idx.squad>=0 ? norm(row[idx.squad]) : '',
       presupuesto: isNaN(presupuesto) ? null : presupuesto,
+      interpretacion: idx.interpretacion>=0 ? norm(row[idx.interpretacion]) : '',
     });
   }
   return out;
@@ -1637,6 +1641,7 @@ function renderCampaigns(){
           <div class="cc-foot">
             <span class="cc-budget">${fmtBudget(c.presupuesto)}</span>
           </div>
+          ${c.interpretacion ? `<div class="cc-ai"><span class="cc-ai-tag">✦ Interpretación IA</span>${c.interpretacion}</div>` : ''}
         </div>`;
     }).join('');
     return `
