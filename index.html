@@ -946,14 +946,36 @@ async function fetchViaOwnProxy(sheetId, tabName){
 }
 
 let __jsonpCounter = 0;
-function jsonpFetch(url, timeoutMs=20000){
+
+// Corre `fn` sobre `items` con un máximo de `limit` en simultáneo — 13 pedidos
+// juntos overcargan Apps Script (empieza a poner algunos en cola y expiran el
+// timeout), pero uno por uno es innecesariamente lento. Un término medio.
+async function mapWithConcurrency(items, limit, fn){
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker(){
+    while(next < items.length){
+      const i = next++;
+      try{ results[i] = { status:'fulfilled', value: await fn(items[i], i) }; }
+      catch(err){ results[i] = { status:'rejected', reason: err }; }
+    }
+  }
+  const workers = Array.from({length: Math.min(limit, items.length)}, worker);
+  await Promise.all(workers);
+  return results;
+}
+function jsonpFetch(url, timeoutMs=25000){
   return new Promise((resolve, reject)=>{
     __jsonpCounter++;
     const cbName = `__bancor_jsonp_cb_${Date.now()}_${__jsonpCounter}`;
     const script = document.createElement('script');
     let done = false;
     const cleanup = ()=>{
-      delete window[cbName];
+      // Reemplaza por una función vacía en vez de borrarla: si la respuesta de
+      // Apps Script llega igual después del timeout, no explota con
+      // "ReferenceError: X is not defined" en la consola — simplemente no hace nada.
+      window[cbName] = ()=>{};
+      setTimeout(()=>{ delete window[cbName]; }, 60000);
       if(script.parentNode) script.parentNode.removeChild(script);
     };
     const timer = setTimeout(()=>{
@@ -1027,8 +1049,8 @@ async function fetchFromSheet(showToast=true){
   if(showToast) toast('Sincronizando con Google Sheets...', {loading:true});
   try{
     const allTabs = ['Plan Anual', ...MONTHS];
-    const allResults = await Promise.allSettled(
-      allTabs.map(tab => fetchTabCSV(cfg.sheetId, tab, cfg.appsScriptUrl).then(csv => ({ tab, csv })))
+    const allResults = await mapWithConcurrency(allTabs, 4, tab =>
+      fetchTabCSV(cfg.sheetId, tab, cfg.appsScriptUrl).then(csv => ({ tab, csv }))
     );
     const [planResult, ...monthResults] = allResults;
 
