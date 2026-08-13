@@ -85,7 +85,7 @@
     margin-bottom: 26px;
   }
   .brand{ display:flex; align-items:center; gap:14px; }
-  .brand-logo{ height:34px; width:auto; flex-shrink:0; display:block; }
+  .brand-logo{ height:102px; width:auto; flex-shrink:0; display:block; }
   .brand-text .tagline{
     font-family: var(--font-mono); font-size: 10.5px; text-transform:uppercase;
     letter-spacing: 1.4px; color: var(--teal-600); margin-top: 5px;
@@ -327,10 +327,8 @@
     transition: all .25s ease; box-shadow: var(--shadow-sm);
   }
   .campaign-card:hover{ transform: translateY(-3px); border-color: var(--teal-500); box-shadow: var(--shadow-md); }
-  .campaign-card .cc-id-row{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
-  .campaign-card .cc-id-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--teal-ink); letter-spacing:0.4px; text-decoration:none; }
+  .campaign-card .cc-id-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--teal-ink); letter-spacing:0.4px; margin-bottom:6px; text-decoration:none; display:inline-block; }
   .campaign-card .cc-id-tag:hover{ text-decoration:underline; }
-  .campaign-card .cc-dates{ font-family: var(--font-mono); font-size:9.5px; color: var(--ink-500); white-space:nowrap; }
   .campaign-card .cc-title{ font-family: var(--font-display); font-size:13.5px; font-weight:600; color: var(--ink-900); line-height:1.3; margin-bottom:8px; }
   .campaign-card .cc-interp-main{ font-size:12.5px; line-height:1.55; color: var(--ink-900); }
   .cp-empty{ font-size:12.5px; color: var(--ink-500); padding: 6px 0; }
@@ -375,12 +373,28 @@
     padding: 3px 10px; border-radius:999px; font-size:10.5px;
   }
   .toast{
-    position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0;
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.94); opacity:0;
     background: var(--ink-900); border:1px solid var(--teal-500); color: #fff;
-    padding: 12px 22px; border-radius:10px; font-size:13px; z-index:100; transition: all .3s ease; pointer-events:none;
-    max-width: min(360px, 86vw); text-align:center; box-shadow: var(--shadow-lg);
+    padding: 20px 26px; border-radius:16px; font-size:13.5px; z-index:200; transition: opacity .25s ease, transform .25s cubic-bezier(.16,1,.3,1); pointer-events:none;
+    max-width: min(380px, 86vw); text-align:center; box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
   }
-  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast.show{ opacity:1; transform:translate(-50%,-50%) scale(1); }
+  .toast::backdrop{ }
+  .toast-overlay{
+    position:fixed; inset:0; background:rgba(7,33,29,0.22); backdrop-filter:blur(2px);
+    z-index:199; opacity:0; pointer-events:none; transition:opacity .25s ease;
+  }
+  .toast-overlay.show{ opacity:1; }
+  .toast-spinner{
+    width:34px; height:34px; border-radius:50%; flex-shrink:0;
+    background: conic-gradient(from 0deg, var(--orange-fill), var(--gold-fill), var(--lime-fill), var(--teal-500), var(--orange-fill));
+    animation: toast-spin 0.9s linear infinite;
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3.5px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3.5px));
+  }
+  @keyframes toast-spin{ to{ transform:rotate(360deg); } }
+  .toast-icon{ font-size:26px; line-height:1; }
 </style>
 </head>
 <body>
@@ -521,6 +535,7 @@
   </div>
 </div>
 
+<div class="toast-overlay" id="toast-overlay"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -826,11 +841,23 @@ function pct(n, digits=0){
   return (n*100).toFixed(digits) + '%';
 }
 
-function toast(msg){
+let __toastHideTimer = null;
+function toast(msg, opts={}){
+  const { loading=false, icon=null } = opts;
   const t = document.getElementById('toast');
-  t.textContent = msg;
+  const overlay = document.getElementById('toast-overlay');
+  if(__toastHideTimer){ clearTimeout(__toastHideTimer); __toastHideTimer = null; }
+  const iconHTML = loading ? `<span class="toast-spinner"></span>` : (icon ? `<span class="toast-icon">${icon}</span>` : '');
+  t.innerHTML = `${iconHTML}<span>${msg}</span>`;
   t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 3400);
+  overlay.classList.add('show');
+  if(!loading){
+    __toastHideTimer = setTimeout(hideToast, 3400);
+  }
+}
+function hideToast(){
+  document.getElementById('toast').classList.remove('show');
+  document.getElementById('toast-overlay').classList.remove('show');
 }
 
 /* ---------- STORAGE ----------
@@ -997,6 +1024,7 @@ async function fetchFromSheet(showToast=true){
   diag(`Sincronizando... ${new Date().toLocaleTimeString('es-AR')}`);
   diag(`Config usada → sheetId: ${cfg.sheetId || '(ninguno)'} | appsScriptUrl: ${cfg.appsScriptUrl || '(ninguno)'}`);
   showDiag();
+  if(showToast) toast('Sincronizando con Google Sheets...', {loading:true});
   try{
     const allTabs = ['Plan Anual', ...MONTHS];
     const allResults = await Promise.allSettled(
@@ -1046,7 +1074,7 @@ async function fetchFromSheet(showToast=true){
     renderAll();
     diag(`Listo. Squads en el panel: ${Object.keys(DATASET).join(', ')}`);
     showDiag();
-    if(showToast) toast('Sincronizado con Google Sheets ✓');
+    if(showToast) toast('Sincronizado con Google Sheets', {icon:'✅'});
     return true;
   }catch(err){
     diag(`ERROR: ${err.message}`);
@@ -1057,7 +1085,7 @@ async function fetchFromSheet(showToast=true){
       flag.textContent = 'Datos de ejemplo';
       flag.style.display = 'inline-block';
     }
-    if(showToast) toast('No se pudo leer "Plan Anual": ' + (err && err.message ? err.message : 'error desconocido') + '. Abrí la consola (F12) para más detalle.');
+    if(showToast) toast('No se pudo leer "Plan Anual": ' + (err && err.message ? err.message : 'error desconocido') + '. Abrí la consola (F12) para más detalle.', {icon:'⚠️'});
     return false;
   }
 }
@@ -1627,10 +1655,7 @@ function renderCampaigns(){
 
   wrap.innerHTML = `<div class="campaigns-grid">${campsDelSquad.map(c=>`
     <div class="campaign-card">
-      <div class="cc-id-row">
-        <a class="cc-id-tag" href="${azureWorkItemUrl(c.id)}" target="_blank" rel="noopener noreferrer">#${c.id || '—'} ↗</a>
-        <span class="cc-dates">${fmtDate(c.inicio)} — ${fmtDate(c.fin)}</span>
-      </div>
+      <a class="cc-id-tag" href="${azureWorkItemUrl(c.id)}" target="_blank" rel="noopener noreferrer">#${c.id || '—'} ↗</a>
       <div class="cc-title">${c.nombre || '(sin nombre)'}</div>
       <div class="cc-interp-main">${c.interpretacion || '<span class="cp-empty" style="padding:0;">Sin interpretación cargada todavía.</span>'}</div>
     </div>`).join('')}</div>`;
