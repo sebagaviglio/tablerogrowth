@@ -139,14 +139,27 @@
     }).catch(() => { /* si Chart.js no carga, el texto de la respuesta igual queda */ });
   }
 
+  function sanitizeJsonish(text) {
+    return text
+      .replace(/[\u201C\u201D]/g, '"')   // comillas tipográficas dobles -> rectas
+      .replace(/[\u2018\u2019]/g, "'")   // comillas tipográficas simples -> rectas
+      .replace(/,\s*([}\]])/g, '$1');    // coma colgante antes de } o ] (error común de LLM)
+  }
+
   function renderChartBlock(escapedSpecText) {
+    const rawText = unescapeHtml(escapedSpecText);
     let spec;
-    try { spec = JSON.parse(unescapeHtml(escapedSpecText)); } catch (e) {
-      return '<div class="ga-chart-error">No pude generar el gráfico (formato inválido).</div>';
+    try {
+      spec = JSON.parse(sanitizeJsonish(rawText));
+    } catch (e) {
+      // El JSON vino roto (ej. un array truncado con "..."). En vez de perder
+      // la respuesta, mostramos el bloque tal cual como texto — mejor eso
+      // que un error mudo.
+      return '<div class="ga-chart-error">No pude renderizar esto como gráfico, así que va como texto:</div><pre><code>' + escapedSpecText + '</code></pre>';
     }
     const allowed = ['bar', 'line', 'pie', 'doughnut'];
     if (!spec || !allowed.includes(spec.type) || !Array.isArray(spec.labels) || !Array.isArray(spec.datasets)) {
-      return '<div class="ga-chart-error">No pude generar el gráfico (datos incompletos).</div>';
+      return '<div class="ga-chart-error">No pude renderizar esto como gráfico, así que va como texto:</div><pre><code>' + escapedSpecText + '</code></pre>';
     }
     const id = 'ga-chart-' + (chartIdCounter++);
     pendingChartSpecs[id] = spec;
