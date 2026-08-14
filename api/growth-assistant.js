@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 900,
+        max_tokens: 1800,
         system: systemPrompt,
         messages
       })
@@ -78,6 +78,9 @@ module.exports = async function handler(req, res) {
     }
 
     const data = await response.json();
+    if (data.stop_reason === 'max_tokens') {
+      console.warn('growth-assistant: respuesta cortada por max_tokens. Considerá subir el límite si esto se repite.');
+    }
     const reply = (data.content || [])
       .filter((block) => block.type === 'text')
       .map((block) => block.text)
