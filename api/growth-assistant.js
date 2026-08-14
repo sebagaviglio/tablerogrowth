@@ -361,6 +361,12 @@ Reglas para los gráficos:
   contexto — nunca inventes números para que el gráfico "cierre visualmente".
   Si no tenés suficientes datos para graficar algo con confianza, no generes
   el bloque y decilo en el texto.
+- El JSON tiene que ser válido y completo siempre. Nunca acortes un array
+  "data" con "..." o cualquier otro placeholder para "ahorrar espacio" —
+  eso rompe el gráfico por completo. Si la serie es muy larga (por ejemplo,
+  combinar dos meses día a día son 40+ puntos), preferí agrupar por semana
+  en vez de por día, o hacer un gráfico separado por mes — pero siempre con
+  el array entero, nunca truncado.
 - Además del gráfico, siempre escribí 1-2 oraciones interpretando lo que
   muestra — el gráfico acompaña la respuesta, nunca la reemplaza.
 - Como mucho un gráfico por respuesta, salvo que te pidan explícitamente
