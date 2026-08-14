@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 1800,
+        max_tokens: 3000,
         system: systemPrompt,
         messages
       })
