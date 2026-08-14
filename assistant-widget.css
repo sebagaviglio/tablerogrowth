@@ -93,8 +93,8 @@
 }
 
 #ga-shell.ga-open{
-  width: min(400px, calc(100vw - 32px));
-  height: min(608px, calc(100vh - 120px));
+  width: min(500px, calc(100vw - 32px));
+  height: min(680px, calc(100vh - 100px));
   border-radius: var(--ga-radius-panel);
 }
 
