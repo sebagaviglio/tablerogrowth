@@ -59,6 +59,101 @@
     return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
   }
 
+  function unescapeHtml(s) {
+    return s
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+
+  /* ---- gráficos: Chart.js se carga bajo demanda, solo si una respuesta
+     trae un bloque ```chart```. No agrega peso si nunca se usa. ---- */
+  const CHART_CDN = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js';
+  const CHART_PALETTE = ['#00A39C', '#ADEB00', '#EE632C', '#CB91FF', '#FFDF00', '#00605C'];
+  let chartJsPromise = null;
+  let activeCharts = [];
+  let pendingChartSpecs = {};
+  let chartIdCounter = 0;
+
+  function ensureChartJs() {
+    if (window.Chart) return Promise.resolve();
+    if (chartJsPromise) return chartJsPromise;
+    chartJsPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = CHART_CDN;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('No se pudo cargar Chart.js'));
+      document.head.appendChild(s);
+    });
+    return chartJsPromise;
+  }
+
+  function destroyActiveCharts() {
+    activeCharts.forEach((c) => { try { c.destroy(); } catch (e) {} });
+    activeCharts = [];
+  }
+
+  function hydrateCharts() {
+    const specs = pendingChartSpecs;
+    pendingChartSpecs = {};
+    const ids = Object.keys(specs);
+    if (ids.length === 0) return;
+    ensureChartJs().then(() => {
+      ids.forEach((id) => {
+        const canvas = document.getElementById(id);
+        const spec = specs[id];
+        if (!canvas || !spec) return;
+        const isCircular = spec.type === 'pie' || spec.type === 'doughnut';
+        const datasets = (spec.datasets || []).map((d, idx) => ({
+          label: d.label || '',
+          data: (d.data || []).map(Number),
+          backgroundColor: isCircular ? CHART_PALETTE : (spec.type === 'line' ? 'rgba(0,163,156,0.15)' : CHART_PALETTE[idx % CHART_PALETTE.length]),
+          borderColor: isCircular ? '#0A1615' : CHART_PALETTE[idx % CHART_PALETTE.length],
+          borderWidth: spec.type === 'line' ? 2 : (isCircular ? 1 : 0),
+          tension: 0.35,
+          fill: spec.type === 'line',
+          borderRadius: spec.type === 'bar' ? 6 : 0
+        }));
+        try {
+          const chart = new window.Chart(canvas, {
+            type: spec.type,
+            data: { labels: (spec.labels || []).map(String), datasets },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: {
+                  display: datasets.length > 1 || isCircular,
+                  labels: { color: 'rgba(234,246,244,0.65)', font: { family: 'Inter', size: 10 }, boxWidth: 10 }
+                }
+              },
+              scales: isCircular ? {} : {
+                x: { ticks: { color: 'rgba(234,246,244,0.5)', font: { size: 9.5 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                y: { ticks: { color: 'rgba(234,246,244,0.5)', font: { size: 9.5 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+              }
+            }
+          });
+          activeCharts.push(chart);
+        } catch (e) { /* un gráfico roto no debe romper el resto de la respuesta */ }
+      });
+    }).catch(() => { /* si Chart.js no carga, el texto de la respuesta igual queda */ });
+  }
+
+  function renderChartBlock(escapedSpecText) {
+    let spec;
+    try { spec = JSON.parse(unescapeHtml(escapedSpecText)); } catch (e) {
+      return '<div class="ga-chart-error">No pude generar el gráfico (formato inválido).</div>';
+    }
+    const allowed = ['bar', 'line', 'pie', 'doughnut'];
+    if (!spec || !allowed.includes(spec.type) || !Array.isArray(spec.labels) || !Array.isArray(spec.datasets)) {
+      return '<div class="ga-chart-error">No pude generar el gráfico (datos incompletos).</div>';
+    }
+    const id = 'ga-chart-' + (chartIdCounter++);
+    pendingChartSpecs[id] = spec;
+    const title = spec.title ? '<div class="ga-chart-title">' + escapeHtml(String(spec.title)) + '</div>' : '';
+    return '<div class="ga-chart-wrap">' + title + '<canvas id="' + id + '"></canvas></div>';
+  }
+
   function renderMarkdown(raw) {
     const lines = escapeHtml(raw || '').split(/\r?\n/);
     const blocks = [];
@@ -79,6 +174,29 @@
 
     while (i < lines.length) {
       const line = lines[i];
+
+      // bloque con fence: ```chart -> gráfico, ``` a secas -> código genérico
+      const fenceMatch = line.match(/^```\s*(\w+)?\s*$/);
+      if (fenceMatch) {
+        flushPara(); flushList();
+        const lang = (fenceMatch[1] || '').toLowerCase();
+        i++;
+        const codeLines = [];
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) { codeLines.push(lines[i]); i++; }
+        i++; // saltea el fence de cierre
+        const codeText = codeLines.join('\n');
+        blocks.push(lang === 'chart' ? renderChartBlock(codeText) : '<pre><code>' + codeText + '</code></pre>');
+        continue;
+      }
+
+      // encabezado (## Sección) — para reportes con subtítulos
+      const headingMatch = line.match(/^\s*#{1,6}\s+(.*)$/);
+      if (headingMatch) {
+        flushPara(); flushList();
+        blocks.push('<h4>' + inlineMd(headingMatch[1]) + '</h4>');
+        i++;
+        continue;
+      }
 
       // tabla estilo GFM: fila de encabezado + fila separadora (|---|---|)
       if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) {
@@ -148,6 +266,7 @@
 
   function renderMessages() {
     const container = document.getElementById('ga-messages');
+    destroyActiveCharts();
     container.innerHTML = '';
     if (state.history.length === 0) {
       container.appendChild(el(`<div id="ga-empty">Preguntame</div>`));
@@ -162,6 +281,7 @@
       container.appendChild(bubble);
     });
     container.scrollTop = container.scrollHeight;
+    hydrateCharts();
   }
 
   function setTyping(on) {
