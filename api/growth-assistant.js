@@ -30,6 +30,59 @@ function recentHistoryText(history) {
 // Cache liviano en memoria (vive mientras la instancia serverless esté "warm")
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
+/**
+ * Llama a la API de Anthropic. Si vuelve sin texto (contenido vacío o
+ * bloques que no son "text"), reintenta una vez — cubre hiccups puntuales
+ * de la API. Si aun así viene vacía, loguea la respuesta cruda completa
+ * para poder diagnosticar la causa real la próxima vez que pase.
+ */
+async function callClaude(systemPrompt, messages) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 3000,
+        system: systemPrompt,
+        messages
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error(`Anthropic API error (intento ${attempt})`, response.status, errText);
+      if (attempt === 2) return null;
+      continue;
+    }
+
+    const data = await response.json();
+    if (data.stop_reason === 'max_tokens') {
+      console.warn('growth-assistant: respuesta cortada por max_tokens. Considerá subir el límite si esto se repite.');
+    }
+
+    const reply = (data.content || [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+      .trim();
+
+    if (reply) return reply;
+
+    // Vino vacía: logueamos todo lo que tenemos para poder diagnosticar,
+    // y probamos una vez más antes de rendirnos.
+    console.error(
+      `growth-assistant: respuesta vacía de Claude (intento ${attempt}). stop_reason=${data.stop_reason}, ` +
+      `content=${JSON.stringify(data.content)}, usage=${JSON.stringify(data.usage)}`
+    );
+  }
+  return null;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -55,40 +108,10 @@ module.exports = async function handler(req, res) {
       .map((m) => ({ role: m.role, content: m.content }));
     messages.push({ role: 'user', content: message });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 3000,
-        system: systemPrompt,
-        messages
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error('Anthropic API error', response.status, errText);
-      res.status(502).json({ error: 'El asistente no pudo responder. Probá de nuevo.' });
-      return;
-    }
-
-    const data = await response.json();
-    if (data.stop_reason === 'max_tokens') {
-      console.warn('growth-assistant: respuesta cortada por max_tokens. Considerá subir el límite si esto se repite.');
-    }
-    const reply = (data.content || [])
-      .filter((block) => block.type === 'text')
-      .map((block) => block.text)
-      .join('\n')
-      .trim();
+    const reply = await callClaude(systemPrompt, messages);
 
     res.status(200).json({
-      reply: reply || 'No tengo una respuesta clara para eso — ¿podés reformular la pregunta?',
+      reply: reply || 'Tuve un problema generando la respuesta recién — probá de nuevo en un momento.',
       dataAsOf: liveContext.fetchedAt
     });
   } catch (err) {
