@@ -64,6 +64,57 @@ async function getAccessToken(env) {
   return cachedToken.accessToken;
 }
 
+// 113-524-1144 resultó ser una cuenta MCC (manager), no una cuenta operativa.
+// Google Ads no permite pedir métricas de campañas directamente sobre una
+// manager account — hay que: 1) listar las cuentas hija (customer_client) que
+// cuelgan de ella, y 2) pedir métricas a cada cuenta hija por separado, usando
+// el header login-customer-id = la MCC. Esta función hace ambos pasos y
+// agrega el resultado en una sola lista de campañas.
+
+async function gAdsSearchStream(env, accessToken, customerId, loginCustomerId, query) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'developer-token': env.GOOGLE_ADS_DEVELOPER_TOKEN,
+    'Authorization': `Bearer ${accessToken}`
+  };
+  if (loginCustomerId) headers['login-customer-id'] = loginCustomerId;
+
+  const r = await fetch(
+    `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/googleAds:searchStream`,
+    { method: 'POST', headers, body: JSON.stringify({ query }) }
+  );
+  const rawText = await r.text();
+  if (!r.ok) {
+    const err = new Error(`Google Ads API respondió ${r.status}`);
+    err.status = r.status;
+    err.detail = rawText.slice(0, 2000);
+    throw err;
+  }
+  try { return JSON.parse(rawText); } catch (e) {
+    const err = new Error('Respuesta de Google Ads no fue JSON válido');
+    err.status = 502;
+    err.detail = rawText.slice(0, 500);
+    throw err;
+  }
+}
+
+// Lista las cuentas hija (no-manager, habilitadas) bajo la MCC.
+async function listChildAccounts(env, accessToken, mccId) {
+  const query = `
+    SELECT customer_client.id, customer_client.descriptive_name, customer_client.manager, customer_client.status
+    FROM customer_client
+    WHERE customer_client.manager = FALSE AND customer_client.status = 'ENABLED'
+  `;
+  const chunks = await gAdsSearchStream(env, accessToken, mccId, mccId, query);
+  const out = [];
+  chunks.forEach(chunk => {
+    (chunk.results || []).forEach(row => {
+      out.push({ id: String(row.customerClient.id), name: row.customerClient.descriptiveName });
+    });
+  });
+  return out;
+}
+
 module.exports = async (req, res) => {
   const env = process.env;
   try {
@@ -74,7 +125,6 @@ module.exports = async (req, res) => {
       return;
     }
 
-    // month = "YYYY-MM". Default: mes calendario actual.
     const monthParam = (req.query && req.query.month) ? String(req.query.month) : '';
     const now = new Date();
     const year = monthParam ? parseInt(monthParam.slice(0, 4), 10) : now.getFullYear();
@@ -91,65 +141,59 @@ module.exports = async (req, res) => {
       : `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
     const accessToken = await getAccessToken(env);
-    const customerId = env.GOOGLE_ADS_CUSTOMER_ID.replace(/-/g, '');
+    const mccId = env.GOOGLE_ADS_CUSTOMER_ID.replace(/-/g, '');
 
-    const query = `
+    const children = await listChildAccounts(env, accessToken, mccId);
+    if (!children.length) {
+      res.status(200).json({
+        customerId: mccId, month: `${year}-${String(month).padStart(2, '0')}`,
+        startDate, endDate, fetchedAt: new Date().toISOString(), campaigns: [],
+        warning: 'La MCC no tiene cuentas hija habilitadas, o el usuario del refresh token no tiene acceso a ninguna.'
+      });
+      return;
+    }
+
+    const metricsQuery = `
       SELECT
-        campaign.id,
-        campaign.name,
-        campaign.status,
-        segments.date,
-        metrics.cost_micros,
-        metrics.clicks,
-        metrics.conversions
+        campaign.id, campaign.name, campaign.status, segments.date,
+        metrics.cost_micros, metrics.clicks, metrics.conversions
       FROM campaign
       WHERE segments.date BETWEEN '${startDate}' AND '${endDate}'
         AND campaign.status != 'REMOVED'
       ORDER BY campaign.id ASC, segments.date ASC
     `;
 
-    const headers = {
-      'Content-Type': 'application/json',
-      'developer-token': env.GOOGLE_ADS_DEVELOPER_TOKEN,
-      'Authorization': `Bearer ${accessToken}`
-    };
-    if (env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) {
-      headers['login-customer-id'] = env.GOOGLE_ADS_LOGIN_CUSTOMER_ID.replace(/-/g, '');
-    }
+    const campaigns = {}; // key = `${accountId}:${campaignId}` -> acumulador
+    const perAccountErrors = [];
 
-    const gAdsRes = await fetch(
-      `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/googleAds:searchStream`,
-      { method: 'POST', headers, body: JSON.stringify({ query }) }
-    );
-    const rawText = await gAdsRes.text();
-    if (!gAdsRes.ok) {
-      res.status(gAdsRes.status).json({ error: `Google Ads API respondió ${gAdsRes.status}`, detail: rawText.slice(0, 2000) });
-      return;
+    // Una cuenta a la vez para no pasarnos de la cuota de la API en cuentas con muchas hijas.
+    for (const acc of children) {
+      try {
+        const chunks = await gAdsSearchStream(env, accessToken, acc.id, mccId, metricsQuery);
+        chunks.forEach(chunk => {
+          (chunk.results || []).forEach(row => {
+            const key = `${acc.id}:${row.campaign.id}`;
+            if (!campaigns[key]) {
+              campaigns[key] = {
+                id: row.campaign.id, name: row.campaign.name, status: row.campaign.status,
+                accountId: acc.id, accountName: acc.name,
+                spend: 0, clicks: 0, conversions: 0, daily: {}
+              };
+            }
+            const c = campaigns[key];
+            const costMicros = parseInt(row.metrics.costMicros || row.metrics.cost_micros || '0', 10);
+            const spend = costMicros / 1e6;
+            c.spend += spend;
+            c.clicks += parseInt(row.metrics.clicks || '0', 10);
+            c.conversions += parseFloat(row.metrics.conversions || '0');
+            const d = row.segments.date;
+            c.daily[d] = (c.daily[d] || 0) + spend;
+          });
+        });
+      } catch (e) {
+        perAccountErrors.push({ accountId: acc.id, accountName: acc.name, error: e.message, detail: e.detail });
+      }
     }
-
-    let chunks;
-    try { chunks = JSON.parse(rawText); } catch (e) {
-      res.status(502).json({ error: 'Respuesta de Google Ads no fue JSON válido', detail: rawText.slice(0, 500) });
-      return;
-    }
-
-    const campaigns = {}; // id -> acumulador
-    chunks.forEach(chunk => {
-      (chunk.results || []).forEach(row => {
-        const id = row.campaign.id;
-        if (!campaigns[id]) {
-          campaigns[id] = { id, name: row.campaign.name, status: row.campaign.status, spend: 0, clicks: 0, conversions: 0, daily: {} };
-        }
-        const c = campaigns[id];
-        const costMicros = parseInt(row.metrics.costMicros || row.metrics.cost_micros || '0', 10);
-        const spend = costMicros / 1e6;
-        c.spend += spend;
-        c.clicks += parseInt(row.metrics.clicks || '0', 10);
-        c.conversions += parseFloat(row.metrics.conversions || '0');
-        const d = row.segments.date;
-        c.daily[d] = (c.daily[d] || 0) + spend;
-      });
-    });
 
     const list = Object.values(campaigns).map(c => {
       const daily = [];
@@ -162,6 +206,8 @@ module.exports = async (req, res) => {
         id: c.id,
         name: c.name,
         status: c.status,
+        accountId: c.accountId,
+        accountName: c.accountName,
         spend: Math.round(c.spend * 100) / 100,
         clicks: c.clicks,
         conversions: Math.round(c.conversions * 100) / 100,
@@ -172,14 +218,16 @@ module.exports = async (req, res) => {
     }).sort((a, b) => b.spend - a.spend);
 
     res.status(200).json({
-      customerId,
+      customerId: mccId,
+      childAccountsQueried: children.length,
       month: `${year}-${String(month).padStart(2, '0')}`,
       startDate,
       endDate,
       fetchedAt: new Date().toISOString(),
-      campaigns: list
+      campaigns: list,
+      accountErrors: perAccountErrors.length ? perAccountErrors : undefined
     });
   } catch (err) {
-    res.status(500).json({ error: (err && err.message) || 'Error desconocido en el proxy de Google Ads' });
+    res.status(err.status || 500).json({ error: err.message || 'Error desconocido en el proxy de Google Ads', detail: err.detail });
   }
 };
