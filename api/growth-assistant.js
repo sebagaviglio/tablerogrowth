@@ -30,34 +30,52 @@ function recentHistoryText(history) {
 // Cache liviano en memoria (vive mientras la instancia serverless esté "warm")
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
 /**
- * Llama a la API de Anthropic. Si vuelve sin texto (contenido vacío o
- * bloques que no son "text"), reintenta una vez — cubre hiccups puntuales
- * de la API. Si aun así viene vacía, loguea la respuesta cruda completa
- * para poder diagnosticar la causa real la próxima vez que pase.
+ * Llama a la API de Anthropic. Reintenta hasta 3 veces con una pausa corta
+ * entre intentos (cubre 429/529 — rate limit / servidor sobrecargado — que
+ * suelen resolverse solos si se espera un toque). Devuelve { reply, debug }:
+ * debug queda null si salió bien, o el detalle real del fallo si no.
  */
 async function callClaude(systemPrompt, messages) {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 3000,
-        system: systemPrompt,
-        messages
-      })
-    });
+  let lastDebug = null;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    let response;
+    try {
+      response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 3000,
+          system: systemPrompt,
+          messages
+        })
+      });
+    } catch (networkErr) {
+      lastDebug = `fetch falló (intento ${attempt}): ${String(networkErr.message || networkErr)}`;
+      console.error(lastDebug);
+      await sleep(600 * attempt);
+      continue;
+    }
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error(`Anthropic API error (intento ${attempt})`, response.status, errText);
-      if (attempt === 2) return null;
-      continue;
+      lastDebug = `Anthropic devolvió ${response.status} (intento ${attempt}): ${errText}`;
+      console.error(lastDebug);
+      // 429 (rate limit) y 529 (sobrecargado) suelen resolverse solos con una pausa.
+      if (response.status === 429 || response.status === 529) {
+        await sleep(800 * attempt);
+        continue;
+      }
+      // otros errores (401, 400, etc.) no se arreglan reintentando igual.
+      break;
     }
 
     const data = await response.json();
@@ -71,16 +89,14 @@ async function callClaude(systemPrompt, messages) {
       .join('\n')
       .trim();
 
-    if (reply) return reply;
+    if (reply) return { reply, debug: null };
 
-    // Vino vacía: logueamos todo lo que tenemos para poder diagnosticar,
-    // y probamos una vez más antes de rendirnos.
-    console.error(
-      `growth-assistant: respuesta vacía de Claude (intento ${attempt}). stop_reason=${data.stop_reason}, ` +
-      `content=${JSON.stringify(data.content)}, usage=${JSON.stringify(data.usage)}`
-    );
+    lastDebug = `Respuesta vacía (intento ${attempt}): stop_reason=${data.stop_reason}, content=${JSON.stringify(data.content)}, usage=${JSON.stringify(data.usage)}`;
+    console.error(lastDebug);
+    await sleep(400 * attempt);
   }
-  return null;
+
+  return { reply: null, debug: lastDebug };
 }
 
 module.exports = async function handler(req, res) {
@@ -108,10 +124,15 @@ module.exports = async function handler(req, res) {
       .map((m) => ({ role: m.role, content: m.content }));
     messages.push({ role: 'user', content: message });
 
-    const reply = await callClaude(systemPrompt, messages);
+    const { reply, debug } = await callClaude(systemPrompt, messages);
+
+    if (!reply) {
+      console.error('growth-assistant: se agotaron los reintentos. Último detalle:', debug);
+    }
 
     res.status(200).json({
       reply: reply || 'Tuve un problema generando la respuesta recién — probá de nuevo en un momento.',
+      debug: reply ? undefined : debug, // detalle técnico solo cuando falló, para diagnosticar sin ir a los logs
       dataAsOf: liveContext.fetchedAt
     });
   } catch (err) {
