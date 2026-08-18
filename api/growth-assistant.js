@@ -54,6 +54,14 @@ async function callClaude(systemPrompt, messages) {
         body: JSON.stringify({
           model: MODEL,
           max_tokens: 3000,
+          // Sonnet 5 trae "adaptive thinking" prendido por default, y esos
+          // tokens de razonamiento salen del mismo max_tokens que la
+          // respuesta — en preguntas analíticas puede gastarse todo el
+          // presupuesto pensando y no dejar nada para el texto final
+          // (stop_reason: "max_tokens" con una respuesta vacía). Lo
+          // desactivamos: para este asistente priorizamos una respuesta
+          // confiable por sobre el razonamiento interno extendido.
+          thinking: { type: 'disabled' },
           system: systemPrompt,
           messages
         })
