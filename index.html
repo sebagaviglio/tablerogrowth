@@ -163,7 +163,10 @@
     background: radial-gradient(circle, rgba(238,99,44,0.07) 0%, transparent 65%);
     pointer-events:none;
   }
-  @media (max-width:980px){ .hero{ grid-template-columns:1fr; padding:24px; } }
+  @media (max-width:980px){
+    .hero{ grid-template-columns:1fr; padding:24px; }
+    .hero::before{ display:none; }
+  }
   @media (max-width:640px){ .hero{ padding:20px 16px; border-radius:18px; } }
 
   .gauge-wrap{ position:relative; width:100%; max-width:260px; aspect-ratio:1/1; margin:0 auto; }
@@ -327,10 +330,8 @@
     transition: all .25s ease; box-shadow: var(--shadow-sm);
   }
   .campaign-card:hover{ transform: translateY(-3px); border-color: var(--teal-500); box-shadow: var(--shadow-md); }
-  .campaign-card .cc-id-row{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
-  .campaign-card .cc-id-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--teal-ink); letter-spacing:0.4px; text-decoration:none; }
+  .campaign-card .cc-id-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--teal-ink); letter-spacing:0.4px; margin-bottom:6px; text-decoration:none; display:inline-block; }
   .campaign-card .cc-id-tag:hover{ text-decoration:underline; }
-  .campaign-card .cc-dates{ font-family: var(--font-mono); font-size:9.5px; color: var(--ink-500); white-space:nowrap; }
   .campaign-card .cc-title{ font-family: var(--font-display); font-size:13.5px; font-weight:600; color: var(--ink-900); line-height:1.3; margin-bottom:8px; }
   .campaign-card .cc-interp-main{ font-size:12.5px; line-height:1.55; color: var(--ink-900); }
   .cp-empty{ font-size:12.5px; color: var(--ink-500); padding: 6px 0; }
@@ -434,7 +435,7 @@
         <circle class="gauge-bg" cx="130" cy="130" r="120"/>
         <circle class="gauge-fg" id="gauge-fg" cx="130" cy="130" r="120"/>
       </svg>
-      <div class="gauge-center has-tip" data-tip="Cantidad de productos, de todos los squads, cuyo ritmo EN EL MES ELEGIDO (real de ese mes ÷ objetivo prorrateado a los días cargados ese mes) es 100% o más, sobre el total de productos con objetivo definido. Un mes sin carga no cuenta como cumplido.">
+      <div class="gauge-center has-tip" data-tip="Cantidad de productos, de todos los squads, cuyo acumulado en el mes elegido ya alcanzó el 100% de la meta completa de ese mes, sobre el total de productos con objetivo definido. Un mes sin carga no cuenta como cumplido.">
         <div class="pct" id="gauge-pct">0%</div>
         <div class="lbl">Objetivos cumplidos<br>sobre el total</div>
       </div>
@@ -1211,18 +1212,25 @@ function renderCards(){
     try{
     const d = segData[prod];
     const kpiSafe = d.kpi || '';
-    const monthRitmo = productMonthRitmo(d, SELECTED_MONTH_IDX);
+    const selMonthLabel = MONTHS[SELECTED_MONTH_IDX];
+    const selReal = d.real[SELECTED_MONTH_IDX];
+    const selTarget = d.plan[SELECTED_MONTH_IDX];
+    // Ritmo simple = acumulado del mes ÷ meta COMPLETA del mes (sin prorratear).
+    // A propósito no prorrateamos acá: mostrar un % "prorrateado" al lado de los
+    // números crudos de Acum/Meta confundía más de lo que aclaraba (con pocos días
+    // corridos del mes, el prorrateo da porcentajes que no coinciden con lo que se
+    // ve a simple vista comparando Acum contra Meta). El matiz de "ritmo esperado
+    // a esta altura del mes" sigue disponible en el gráfico de evolutivo diario.
+    const monthRitmo = (selReal!==null && selReal!==undefined && selTarget!==null && selTarget!==undefined && selTarget>0)
+      ? selReal/selTarget : null;
     let badgeClass = 'warn', badgeText = 'sin datos';
     if(monthRitmo !== null){
       badgeText = pct(monthRitmo);
-      badgeClass = monthRitmo >= 1.02 ? 'ok' : (monthRitmo <= 0.90 ? 'bad' : 'warn');
+      badgeClass = monthRitmo >= 1 ? 'ok' : (monthRitmo <= 0.70 ? 'bad' : 'warn');
     }
     const card = document.createElement('div');
     card.className = 'product-card';
     card.style.animation = `fadeUp .5s ease ${i*0.04}s both`;
-    const selMonthLabel = MONTHS[SELECTED_MONTH_IDX];
-    const selReal = d.real[SELECTED_MONTH_IDX];
-    const selTarget = d.plan[SELECTED_MONTH_IDX];
     if(selReal !== null && selReal !== undefined){
       card.innerHTML = `
         <div class="card-head">
@@ -1230,7 +1238,7 @@ function renderCards(){
             <div class="p-name">${prod}</div>
             <div class="p-sub">${kpiSafe}</div>
           </div>
-          <span class="badge ${badgeClass} has-tip tip-right" data-tip="Ritmo de ${selMonthLabel} = acumulado real de ese mes ÷ objetivo prorrateado a los días cargados en ${selMonthLabel}. 100% = va exactamente al ritmo esperado para ese mes.">${badgeText}</span>
+          <span class="badge ${badgeClass} has-tip tip-right" data-tip="Ritmo de ${selMonthLabel} = acumulado real de ese mes ÷ meta completa de ${selMonthLabel} (sin prorratear por días transcurridos). 100% = ya alcanzó la meta del mes.">${badgeText}</span>
         </div>
         ${sparklineSVG(d.plan, d.real)}
         <div class="p-figs">
@@ -1524,6 +1532,15 @@ function productMonthRitmo(p, monthIdx){
   return proratedTarget>0 ? sum/proratedTarget : null;
 }
 
+// Igual criterio que las tarjetas de producto: acumulado del mes ÷ meta completa
+// del mes, sin prorratear — para que el Hero y las tarjetas nunca se contradigan.
+function productMonthSimpleRatio(p, monthIdx){
+  const real = p.real[monthIdx];
+  const target = p.plan[monthIdx];
+  if(real===null || real===undefined || target===null || target===undefined || target<=0) return null;
+  return real/target;
+}
+
 function renderHero(){
   let allProducts = [];
   Object.keys(DATASET).forEach(seg=>{
@@ -1532,7 +1549,7 @@ function renderHero(){
     });
   });
   const totalCumplidos = allProducts.filter(p=>{
-    const r = productMonthRitmo(p, SELECTED_MONTH_IDX);
+    const r = productMonthSimpleRatio(p, SELECTED_MONTH_IDX);
     return r!==null && r>=1;
   }).length;
   const totalProductos = allProducts.length;
@@ -1543,7 +1560,7 @@ function renderHero(){
   Object.keys(DATASET).forEach(seg=>{
     const prods = Object.values(DATASET[seg].products);
     const cumplidos = prods.filter(p=>{
-      const r = productMonthRitmo(p, SELECTED_MONTH_IDX);
+      const r = productMonthSimpleRatio(p, SELECTED_MONTH_IDX);
       return r!==null && r>=1;
     }).length;
     const total = prods.length;
@@ -1553,7 +1570,7 @@ function renderHero(){
     const card = document.createElement('div');
     card.className = 'squad-mini-card has-tip' + (seg===ACTIVE_SEGMENT ? ' is-active' : '');
     card.style.borderTopColor = fill;
-    card.setAttribute('data-tip', `Cantidad de productos de ${seg} cuyo ritmo en ${MONTHS[SELECTED_MONTH_IDX]} (real del mes ÷ objetivo prorrateado a los días cargados ESE mes) es 100% o más, sobre el total de productos del squad. Si ${MONTHS[SELECTED_MONTH_IDX]} todavía no tiene carga, no cuenta como cumplido. Tocá para ver el detalle.`);
+    card.setAttribute('data-tip', `Cantidad de productos de ${seg} cuyo acumulado en ${MONTHS[SELECTED_MONTH_IDX]} ya alcanzó el 100% de la meta completa de ese mes, sobre el total de productos del squad. Si ${MONTHS[SELECTED_MONTH_IDX]} todavía no tiene carga, no cuenta como cumplido. Tocá para ver el detalle.`);
     card.innerHTML = `
       <div class="sm-name">${seg}</div>
       <div class="sm-pct" style="color:${ratio===null?'var(--ink-500)':(ratio>=0.7?'var(--lime-ink)':(ratio<0.4?'var(--magenta-ink)':'var(--ink-900)'))}">${cumplidos}/${total}</div>
@@ -1679,10 +1696,7 @@ function renderCampaigns(){
 
   wrap.innerHTML = `<div class="campaigns-grid">${campsDelSquad.map(c=>`
     <div class="campaign-card">
-      <div class="cc-id-row">
-        <a class="cc-id-tag" href="${azureWorkItemUrl(c.id)}" target="_blank" rel="noopener noreferrer">#${c.id || '—'} ↗</a>
-        <span class="cc-dates">${fmtDate(c.inicio)} — ${fmtDate(c.fin)}</span>
-      </div>
+      <a class="cc-id-tag" href="${azureWorkItemUrl(c.id)}" target="_blank" rel="noopener noreferrer">#${c.id || '—'} ↗</a>
       <div class="cc-title">${c.nombre || '(sin nombre)'}</div>
       <div class="cc-interp-main">${c.interpretacion || '<span class="cp-empty" style="padding:0;">Sin interpretación cargada todavía.</span>'}</div>
     </div>`).join('')}</div>`;
