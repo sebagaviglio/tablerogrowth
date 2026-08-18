@@ -398,6 +398,36 @@
   }
   @keyframes toast-spin{ to{ transform:rotate(360deg); } }
   .toast-icon{ font-size:26px; line-height:1; }
+
+  /* ---------- PAID MEDIA (Google Ads) ---------- */
+  .paidmedia-panel{
+    background: var(--surface); border:1px solid var(--border); border-radius:18px; padding:22px;
+    margin-top: 22px; box-shadow: var(--shadow-sm);
+  }
+  .pm-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px; }
+  .pm-head h3{ font-family: var(--font-display); font-size:16px; display:flex; align-items:center; gap:8px; color:var(--ink-900); }
+  .pm-head h3 .lime-dot{ width:8px; height:8px; border-radius:50%; background:var(--orange-fill); box-shadow:0 0 6px var(--orange-fill); }
+  .pm-sub{ font-size:11.5px; color: var(--ink-500); margin-bottom:16px; }
+  .pm-meta{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-300); text-align:right; }
+  .pm-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap:14px; }
+  .pm-card{
+    background: var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px;
+    transition: all .2s ease;
+  }
+  .pm-card:hover{ border-color: var(--orange-fill); }
+  .pm-card .pm-name{ font-family: var(--font-display); font-weight:600; font-size:13px; color:var(--ink-900); line-height:1.25; margin-bottom:2px; }
+  .pm-card .pm-status{ font-family: var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:0.5px; color: var(--ink-500); }
+  .pm-card .pm-figs{ display:flex; justify-content:space-between; gap:8px; margin-top:10px; font-family: var(--font-mono); font-size:10px; color: var(--ink-500); }
+  .pm-card .pm-figs b{ display:block; font-size:14px; color: var(--ink-900); font-family: var(--font-body); }
+  .pm-badge-neutral{
+    font-family: var(--font-mono); font-size:9.5px; color: var(--ink-500);
+    background: rgba(92,124,119,0.10); border:1px solid var(--border); border-radius:999px;
+    padding:2px 8px; display:inline-block; margin-top:8px;
+  }
+  .pm-empty, .pm-error{
+    font-size:13px; color: var(--ink-500); padding: 18px 4px; text-align:center;
+  }
+  .pm-error{ color: var(--magenta-ink); }
 </style>
 </head>
 <body>
@@ -470,6 +500,20 @@
       </div>
     </div>
     <div id="campaigns-groups"></div>
+  </div>
+
+  <!-- PAID MEDIA (Google Ads) -->
+  <div class="paidmedia-panel">
+    <div class="pm-head">
+      <div>
+        <h3><span class="lime-dot"></span>Medios pagos · Google Ads</h3>
+        <div class="pm-sub">Gasto y CPA por campaña, cuenta 113-524-1144 (MCC, agregado de sus cuentas hija) · mes seleccionado arriba · sin objetivo de gasto cargado todavía (se agrega más adelante)</div>
+      </div>
+      <div class="pm-meta" id="pm-meta">—</div>
+    </div>
+    <div class="pm-grid" id="pm-grid">
+      <div class="pm-empty">Cargando datos de Google Ads...</div>
+    </div>
   </div>
 
   <footer>
@@ -572,6 +616,7 @@ function populateMonthSelect(){
   sel.onchange = ()=>{
     SELECTED_MONTH_IDX = parseInt(sel.value, 10);
     renderAll();
+    fetchPaidMedia(SELECTED_MONTH_IDX);
   };
 }
 
@@ -1717,6 +1762,104 @@ function renderAll(){
   if(isDemo) demoFlag.textContent = 'Datos de ejemplo';
 }
 
+/* ---------- PAID MEDIA (Google Ads) ----------
+   Panel aparte, sin mapear a squads (así se definió). Usa el mismo
+   SELECTED_MONTH_IDX que el resto del tablero y el mismo patrón de
+   caché (storageGet/storageSet) que el Sheet, pero habla con
+   /api/google-ads-proxy en vez de Google Sheets directo, porque acá
+   sí hay credenciales de por medio (ver comentarios en ese archivo).
+   113-524-1144 es una MCC: el proxy ya agrega el gasto de todas sus
+   cuentas hija, y cada campaña trae accountName con la cuenta de origen. */
+let PAID_MEDIA_CACHE = {}; // "YYYY-MM" -> {data, fetchedAt, error}
+const PM_YEAR = 2026; // el tablero está armado para el plan 2026, igual que MONTHS
+
+function pmMonthKey(monthIdx){ return `${PM_YEAR}-${String(monthIdx+1).padStart(2,'0')}`; }
+
+async function loadPaidMediaCacheFromStorage(){
+  try{
+    const v = await storageGet('bancor_paidmedia_cache');
+    if(v) PAID_MEDIA_CACHE = JSON.parse(v);
+  }catch(e){}
+}
+async function savePaidMediaCacheToStorage(){
+  try{ await storageSet('bancor_paidmedia_cache', JSON.stringify(PAID_MEDIA_CACHE)); }catch(e){}
+}
+
+async function fetchPaidMedia(monthIdx, force){
+  const key = pmMonthKey(monthIdx);
+  if(!force && PAID_MEDIA_CACHE[key] && PAID_MEDIA_CACHE[key].data){
+    renderPaidMedia();
+    return;
+  }
+  if(SELECTED_MONTH_IDX === monthIdx) renderPaidMedia(true); // mostrar "cargando" si no había nada
+  try{
+    const res = await fetch(`/api/google-ads-proxy?month=${key}`, {cache:'no-store'});
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    PAID_MEDIA_CACHE[key] = {data: json, fetchedAt: Date.now(), error: null};
+  }catch(e){
+    PAID_MEDIA_CACHE[key] = {data: (PAID_MEDIA_CACHE[key]&&PAID_MEDIA_CACHE[key].data)||null, fetchedAt: PAID_MEDIA_CACHE[key]&&PAID_MEDIA_CACHE[key].fetchedAt, error: e.message};
+  }
+  await savePaidMediaCacheToStorage();
+  if(SELECTED_MONTH_IDX === monthIdx) renderPaidMedia();
+}
+
+function pmSparkline(daily){
+  const w=200,h=36;
+  const valid = daily.map((v,i)=>[i,v]).filter(([,v])=>v!==null && v!==undefined);
+  if(valid.length < 2) return '';
+  const maxV = Math.max(1, ...valid.map(([,v])=>v));
+  const n = daily.length;
+  const stepX = w/(n-1);
+  const scaleY = v => h - (v/maxV)*h*0.9 - 2;
+  const pts = valid.map(([i,v])=>`${i*stepX},${scaleY(v)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="margin-top:8px;">
+    <polyline points="${pts}" fill="none" stroke="var(--orange-fill)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function renderPaidMedia(loadingOnly){
+  const grid = document.getElementById('pm-grid');
+  const meta = document.getElementById('pm-meta');
+  if(!grid) return;
+  const key = pmMonthKey(SELECTED_MONTH_IDX);
+  const entry = PAID_MEDIA_CACHE[key];
+
+  if(loadingOnly || !entry){
+    grid.innerHTML = '<div class="pm-empty">Cargando datos de Google Ads...</div>';
+    meta.textContent = '';
+    return;
+  }
+  if(entry.error && !entry.data){
+    grid.innerHTML = `<div class="pm-error">No se pudo leer Google Ads para ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}: ${entry.error}</div>`;
+    meta.textContent = '';
+    return;
+  }
+  const data = entry.data;
+  if(!data || !data.campaigns || !data.campaigns.length){
+    grid.innerHTML = `<div class="pm-empty">Sin campañas con gasto en ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}.</div>`;
+    meta.textContent = entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '';
+    return;
+  }
+  meta.textContent = (entry.error ? '⚠ último intento de refresco falló — mostrando el último dato bueno · ' : '') +
+    (entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '');
+
+  grid.innerHTML = data.campaigns.map(c=>{
+    const statusLabel = (c.status||'').toLowerCase();
+    return `<div class="pm-card">
+      <div class="pm-name">${c.name}</div>
+      <div class="pm-status">${statusLabel}${c.accountName ? ' · ' + c.accountName : ''}</div>
+      <div class="pm-figs">
+        <div>Gasto<b>$${fmtNum(c.spend)}</b></div>
+        <div>CPA<b>${c.cpa!==null ? '$'+fmtNum(c.cpa) : '—'}</b></div>
+        <div>Clics<b>${fmtNum(c.clicks)}</b></div>
+      </div>
+      ${pmSparkline(c.daily)}
+      <div class="pm-badge-neutral">sin objetivo definido</div>
+    </div>`;
+  }).join('');
+}
+
 /* ---------- CLOCK + AUTO-CHECK ---------- */
 function updateClock(){
   const now = new Date();
@@ -1728,6 +1871,7 @@ async function autoCheckLoop(){
   if(now.getHours() >= 20 && lastAutoCheckDate !== now.toDateString()){
     lastAutoCheckDate = now.toDateString();
     await fetchFromSheet(true);
+    await fetchPaidMedia(SELECTED_MONTH_IDX, true);
   }
 }
 
@@ -1748,6 +1892,10 @@ async function init(){
   isDemo = true;
   renderAll();
   document.getElementById('last-sync').textContent = 'datos de ejemplo (extraídos de tu archivo, sin sincronizar)';
+
+  await loadPaidMediaCacheFromStorage();
+  renderPaidMedia();
+  fetchPaidMedia(SELECTED_MONTH_IDX);
 
   const cfg = await loadConfig();
   if(cfg && (cfg.sheetId || cfg.appsScriptUrl)){
@@ -1807,7 +1955,10 @@ async function init(){
   document.getElementById('refresh-btn').onclick = async (e)=>{
     const btn = e.currentTarget;
     btn.classList.add('loading');
-    await fetchFromSheet(true);
+    await Promise.all([
+      fetchFromSheet(true),
+      fetchPaidMedia(SELECTED_MONTH_IDX, true)
+    ]);
     document.getElementById('last-sync').textContent = new Date().toLocaleString('es-AR');
     btn.classList.remove('loading');
   };
