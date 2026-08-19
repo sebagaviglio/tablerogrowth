@@ -9,7 +9,7 @@
 // Toda la lógica de auth OAuth2 + fetch de campañas vive en
 // api/_lib/google-ads-core.js (compartida con api/google-ads-sheet-sync.js,
 // que además escribe una copia de estos datos en Google Sheets para que
-// el equipo asigne squad y presupuesto a mano).
+// el equipo asigne squad y objetivo a mano o desde el panel del tablero.
 //
 // VARIABLES DE ENTORNO REQUERIDAS (Vercel → Project Settings →
 // Environment Variables). Nunca hardcodear estos valores acá ni en
@@ -29,8 +29,8 @@ module.exports = async (req, res) => {
     const monthParam = (req.query && req.query.month) ? String(req.query.month) : '';
     const data = await fetchCampaigns(process.env, monthParam);
     // budget queda reservado en el shape para compatibilidad con el cliente actual;
-    // el valor real de presupuesto ahora vive en la pestaña "Google Ads" del Sheet,
-    // el cliente lo mergea del lado suyo (ver fetchGoogleAdsAssignments en index.html).
+    // el objetivo real ahora vive en la pestaña "Google Ads" del Sheet (columna H),
+    // el cliente lo mergea del lado suyo (ver fetchGoogleAdsAssignments/GADS_ASSIGN en index.html).
     data.campaigns = data.campaigns.map(c => ({ ...c, budget: null }));
     res.status(200).json(data);
   } catch (err) {
