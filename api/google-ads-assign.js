@@ -13,7 +13,8 @@
 //
 // Body esperado (POST, JSON): { sheetId, campaignId, squad, objetivo }
 //   squad: string (nombre exacto del squad) o "" para desasignar.
-//   objetivo: number, o null/"" para borrarlo.
+//   objetivo: string — uno de GADS_OBJETIVOS (Descargas/Registros/Conversión/Alcance,
+//   igual que la validación de datos que ya tiene la columna H en el Sheet), o "" para borrarlo.
 //
 // Si la campaña todavía no tiene fila en la pestaña "Google Ads" (nunca
 // corrió un sync completo), devuelve error pidiendo que se corra un
@@ -24,6 +25,7 @@
 const { getSheetsAccessToken, sheetsFetch } = require('./_lib/sheets-auth');
 
 const SHEET_TAB = 'Google Ads';
+const GADS_OBJETIVOS = ['Descargas', 'Registros', 'Conversión', 'Alcance'];
 
 async function readBody(req) {
   if (req.body && typeof req.body === 'object') return req.body;
@@ -51,11 +53,9 @@ module.exports = async (req, res) => {
       return;
     }
     const squad = (body.squad === null || body.squad === undefined) ? '' : String(body.squad);
-    const objetivo = (body.objetivo === null || body.objetivo === undefined || body.objetivo === '')
-      ? ''
-      : Number(body.objetivo);
-    if (objetivo !== '' && (isNaN(objetivo) || objetivo < 0)) {
-      res.status(400).json({ error: `"objetivo" inválido: ${body.objetivo}` });
+    const objetivo = (body.objetivo === null || body.objetivo === undefined) ? '' : String(body.objetivo);
+    if (objetivo !== '' && !GADS_OBJETIVOS.includes(objetivo)) {
+      res.status(400).json({ error: `"objetivo" inválido: "${objetivo}" — tiene que ser uno de: ${GADS_OBJETIVOS.join(', ')} (o vacío).` });
       return;
     }
 
