@@ -429,6 +429,18 @@
     font-size:13px; color: var(--ink-500); padding: 18px 4px; text-align:center;
   }
   .pm-error{ color: var(--magenta-ink); }
+
+  /* ---------- PANELES COLAPSABLES (Campañas + Google Ads) ---------- */
+  .collapsible-head{ cursor:pointer; user-select:none; }
+  .collapsible-head:hover h3, .collapsible-head:hover h4{ color: var(--teal-700); }
+  .panel-toggle-area{ display:flex; align-items:center; gap:10px; }
+  .panel-count-badge{
+    font-family: var(--font-mono); font-size:11px; font-weight:600; color: var(--teal-ink);
+    background: rgba(0,96,92,0.08); border:1px solid rgba(0,96,92,0.22);
+    padding:4px 11px; border-radius:999px; white-space:nowrap;
+  }
+  .panel-chevron{ font-size:12px; color: var(--ink-500); transition: transform .2s ease; display:inline-block; }
+  .panel-chevron.open{ transform: rotate(90deg); }
 </style>
 </head>
 <body>
@@ -494,10 +506,14 @@
 
   <!-- CAMPAÑAS (Azure DevOps) -->
   <div class="campaigns-panel">
-    <div class="cp-head">
+    <div class="cp-head collapsible-head" id="campaigns-toggle-row">
       <div>
         <h4>Campañas vigentes</h4>
         <div class="cp-sub" id="campaigns-subtitle">Fuente: Azure DevOps</div>
+      </div>
+      <div class="panel-toggle-area">
+        <span class="panel-count-badge" id="campaigns-count-badge">—</span>
+        <span class="panel-chevron" id="campaigns-chevron">▸</span>
       </div>
     </div>
     <div id="campaigns-groups"></div>
@@ -505,12 +521,18 @@
 
   <!-- PAID MEDIA (Google Ads) -->
   <div class="paidmedia-panel">
-    <div class="pm-head">
+    <div class="pm-head collapsible-head" id="paidmedia-toggle-row">
       <div>
         <h3><span class="lime-dot"></span>Medios pagos · Google Ads</h3>
         <div class="pm-sub">Gasto y CPA en vivo desde Google Ads, cuenta 113-524-1144 (MCC) · Squad y Presupuesto se cargan a mano en la pestaña "Google Ads" del Sheet</div>
       </div>
-      <div class="pm-meta" id="pm-meta">—</div>
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+        <div class="panel-toggle-area">
+          <span class="panel-count-badge" id="paidmedia-count-badge">—</span>
+          <span class="panel-chevron" id="paidmedia-chevron">▸</span>
+        </div>
+        <div class="pm-meta" id="pm-meta">—</div>
+      </div>
     </div>
     <div class="pm-grid" id="pm-grid">
       <div class="pm-empty">Cargando datos de Google Ads...</div>
@@ -1751,14 +1773,41 @@ function fmtBudget(n){
   if(n===null || n===undefined || isNaN(n)) return '—';
   return '$' + n.toLocaleString('es-AR', {maximumFractionDigits:0});
 }
+let CAMPAIGNS_COLLAPSED = true; // colapsado por default
+
+function toggleCampaignsPanel(){
+  CAMPAIGNS_COLLAPSED = !CAMPAIGNS_COLLAPSED;
+  renderCampaigns();
+}
+
 function renderCampaigns(){
   const wrap = document.getElementById('campaigns-groups');
   const sub = document.getElementById('campaigns-subtitle');
+  const countBadge = document.getElementById('campaigns-count-badge');
+  const chevron = document.getElementById('campaigns-chevron');
   if(!wrap) return;
+
+  wrap.style.display = CAMPAIGNS_COLLAPSED ? 'none' : 'block';
+  if(chevron) chevron.classList.toggle('open', !CAMPAIGNS_COLLAPSED);
+
+  const monthUnavailable = SELECTED_MONTH_IDX < CURRENT_MONTH_IDX;
+  const campsDelSquad = (!monthUnavailable && CAMPAIGNS.length)
+    ? CAMPAIGNS.filter(c => mapAreaPathToSquad(c.squad) === ACTIVE_SEGMENT)
+    : [];
+
+  if(countBadge){
+    countBadge.textContent = monthUnavailable
+      ? '—'
+      : `${campsDelSquad.length} activa${campsDelSquad.length===1?'':'s'}`;
+  }
+
+  // Si está colapsado, no hace falta armar el contenido interno todavía —
+  // se arma recién cuando el usuario lo despliega (evita trabajo de más).
+  if(CAMPAIGNS_COLLAPSED) return;
 
   // Desactivado para meses anteriores al actual: las campañas son "vigentes
   // hoy", no tiene sentido mostrarlas al mirar el histórico de un mes pasado.
-  if(SELECTED_MONTH_IDX < CURRENT_MONTH_IDX){
+  if(monthUnavailable){
     if(sub) sub.textContent = `No disponible para ${MONTHS[SELECTED_MONTH_IDX]} — las campañas vigentes solo se muestran para el mes actual (${MONTHS[CURRENT_MONTH_IDX]}).`;
     wrap.innerHTML = `<div class="cp-empty">Elegí ${MONTHS[CURRENT_MONTH_IDX]} en el selector de arriba para ver las campañas vigentes.</div>`;
     return;
@@ -1770,8 +1819,6 @@ function renderCampaigns(){
     wrap.innerHTML = `<div class="cp-empty">Todavía no hay datos de la pestaña "Campañas" (o el sync diario de Azure DevOps no corrió todavía).</div>`;
     return;
   }
-
-  const campsDelSquad = CAMPAIGNS.filter(c => mapAreaPathToSquad(c.squad) === ACTIVE_SEGMENT);
 
   if(!campsDelSquad.length){
     wrap.innerHTML = `<div class="cp-empty">No hay campañas vigentes para el squad "${ACTIVE_SEGMENT}".</div>`;
@@ -1878,12 +1925,39 @@ function pmSparkline(daily){
   </svg>`;
 }
 
+let PAIDMEDIA_COLLAPSED = true; // colapsado por default
+
+function togglePaidMediaPanel(){
+  PAIDMEDIA_COLLAPSED = !PAIDMEDIA_COLLAPSED;
+  renderPaidMedia();
+}
+
 function renderPaidMedia(loadingOnly){
   const grid = document.getElementById('pm-grid');
   const meta = document.getElementById('pm-meta');
+  const countBadge = document.getElementById('paidmedia-count-badge');
+  const chevron = document.getElementById('paidmedia-chevron');
   if(!grid) return;
+
+  grid.style.display = PAIDMEDIA_COLLAPSED ? 'none' : 'grid';
+  if(chevron) chevron.classList.toggle('open', !PAIDMEDIA_COLLAPSED);
+
   const key = pmMonthKey(SELECTED_MONTH_IDX);
   const entry = PAID_MEDIA_CACHE[key];
+
+  // Conteo para el badge — se actualiza SIEMPRE, esté colapsado o no.
+  if(countBadge){
+    if(loadingOnly || !entry){
+      countBadge.textContent = '…';
+    } else if(entry.error && !entry.data){
+      countBadge.textContent = '⚠';
+    } else {
+      const camps = (entry.data && entry.data.campaigns) || [];
+      countBadge.textContent = `${camps.length} activa${camps.length===1?'':'s'}`;
+    }
+  }
+
+  if(PAIDMEDIA_COLLAPSED) return;
 
   if(loadingOnly || !entry){
     grid.innerHTML = '<div class="pm-empty">Cargando datos de Google Ads...</div>';
@@ -2000,6 +2074,10 @@ async function init(){
   }
 
   document.getElementById('settings-btn').onclick = ()=> document.getElementById('settings-overlay').classList.add('open');
+  const campToggleRow = document.getElementById('campaigns-toggle-row');
+  if(campToggleRow) campToggleRow.onclick = toggleCampaignsPanel;
+  const pmToggleRow = document.getElementById('paidmedia-toggle-row');
+  if(pmToggleRow) pmToggleRow.onclick = togglePaidMediaPanel;
   document.getElementById('close-settings-btn').onclick = ()=> document.getElementById('settings-overlay').classList.remove('open');
   document.getElementById('settings-overlay').onclick = (e)=>{ if(e.target.id==='settings-overlay') e.currentTarget.classList.remove('open'); };
 
