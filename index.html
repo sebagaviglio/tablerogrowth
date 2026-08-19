@@ -435,8 +435,8 @@
     flex:1 1 100px; min-width:100px; font-family: var(--font-body); font-size:11px; color: var(--ink-900);
     background: var(--surface); border:1px solid var(--border); border-radius:8px; padding:5px 6px;
   }
-  .pm-objetivo-input{
-    flex:1 1 80px; min-width:70px; font-family: var(--font-mono); font-size:11px; color: var(--ink-900);
+  .pm-objetivo-select{
+    flex:1 1 100px; min-width:100px; font-family: var(--font-body); font-size:11px; color: var(--ink-900);
     background: var(--surface); border:1px solid var(--border); border-radius:8px; padding:5px 6px;
   }
   .pm-save-btn{
@@ -892,7 +892,16 @@ function parseCampaignsTab(rows){
 // Pestaña "Google Ads": la escribe sola el proxy (api/google-ads-sheet-sync.js)
 // con ID/Nombre/Cuenta/Estado/Gasto/CPA recalculados en cada sync, y el equipo
 // carga a mano las columnas Squad y Objetivo (nunca se pisan desde acá) — ya sea
-// directo en el Sheet o desde el propio panel del tablero (ver saveGoogleAdsAssign).
+// directo en el Sheet o desde el propio panel del tablero (ver savePaidMediaAssignment).
+// "Objetivo" es categórico (el tipo de objetivo de la campaña en Google Ads: Descargas,
+// Registros, Conversión, Alcance), no un monto — no hay ritmo que calcular acá.
+const GADS_OBJETIVOS = ['Descargas', 'Registros', 'Conversión', 'Alcance'];
+const GADS_OBJETIVO_COLORS = {
+  'Descargas': 'var(--teal-500)',
+  'Registros': 'var(--gold-ink)',
+  'Conversión': 'var(--lime-ink)',
+  'Alcance': 'var(--lavender-ink)'
+};
 function parseGoogleAdsTab(rows){
   if(!rows || !rows.length) return {};
   const header = rows[0].map(h => norm(h).toLowerCase());
@@ -907,12 +916,12 @@ function parseGoogleAdsTab(rows){
     const id = idx.id>=0 ? norm(row[idx.id]) : '';
     if(!id) continue;
     const squad = idx.squad>=0 ? norm(row[idx.squad]) : '';
-    const objetivoRaw = idx.objetivo>=0 ? (row[idx.objetivo]||'') : '';
-    const objetivo = parseFloat(String(objetivoRaw).replace(/[^0-9.-]/g,''));
-    out[id] = { squad: squad || null, objetivo: isNaN(objetivo) ? null : objetivo };
+    const objetivo = idx.objetivo>=0 ? norm(row[idx.objetivo]) : '';
+    out[id] = { squad: squad || null, objetivo: objetivo || null };
   }
   return out;
 }
+
 
 // Combina Plan Anual + las 12 pestañas mensuales (ya parseadas) en el formato REAL_SEED
 function combineSheetData(planData, monthlyByTab){
@@ -1955,29 +1964,26 @@ function togglePaidMediaPanel(){
   renderPaidMedia();
 }
 
-function pmRitmoHTML(c, objetivo, data){
+function pmObjetivoBadgeHTML(objetivo){
   if(!objetivo) return `<div class="pm-badge-neutral">sin objetivo definido</div>`;
-  const asOfDay = parseInt((data.endDate||'').slice(8,10), 10) || 1;
-  const daysInSelMonth = new Date(PM_YEAR, SELECTED_MONTH_IDX+1, 0).getDate();
-  const ritmo = c.spend / (objetivo * (asOfDay/daysInSelMonth));
-  const ritmoClass = ritmo > 1.15 ? 'bad' : (ritmo < 0.85 ? 'warn' : 'ok');
-  return `<div class="pm-figs" style="margin-top:8px;">
-      <div>Objetivo<b>$${fmtNum(objetivo)}</b></div>
-      <div><span class="badge ${ritmoClass} has-tip tip-right" data-tip="Ritmo = gasto acumulado ÷ objetivo prorrateado a los ${asOfDay} días con datos de ${MONTHS[SELECTED_MONTH_IDX]}. >100% = está gastando más rápido de lo previsto.">${pct(ritmo)}</span></div>
-    </div>`;
+  const color = GADS_OBJETIVO_COLORS[objetivo] || 'var(--ink-500)';
+  return `<div class="pm-badge-neutral" style="color:${color}; border-color:${color};">${objetivo}</div>`;
 }
 
 function pmCardHTML(c, data){
   const statusLabel = (c.status||'').toLowerCase();
   const assign = GADS_ASSIGN[c.id] || null;
   const squad = assign ? assign.squad : null;
-  const objetivo = assign && assign.objetivo ? assign.objetivo : null;
+  const objetivo = assign ? assign.objetivo : null;
   const squadColor = squad && SQUAD_COLORS[squad] ? SQUAD_COLORS[squad] : null;
   const squadTag = squad
     ? `<div class="pm-squad-tag" style="color:${squadColor || 'var(--ink-500)'}">${squad}</div>`
     : '';
   const squadOptions = Object.keys(DATASET).map(sq =>
     `<option value="${sq}" ${sq===squad ? 'selected' : ''}>${sq}</option>`
+  ).join('');
+  const objetivoOptions = GADS_OBJETIVOS.map(o =>
+    `<option value="${o}" ${o===objetivo ? 'selected' : ''}>${o}</option>`
   ).join('');
 
   return `<div class="pm-card">
@@ -1990,32 +1996,34 @@ function pmCardHTML(c, data){
         <div>Clics<b>${fmtNum(c.clicks)}</b></div>
       </div>
       ${pmSparkline(c.daily)}
-      ${pmRitmoHTML(c, objetivo, data)}
+      ${pmObjetivoBadgeHTML(objetivo)}
       <div class="pm-edit-row">
         <select class="pm-squad-select" data-campid="${c.id}">
           <option value="">Sin asignar</option>
           ${squadOptions}
         </select>
-        <input type="number" class="pm-objetivo-input" data-campid="${c.id}" placeholder="Objetivo $" value="${objetivo!==null ? objetivo : ''}">
+        <select class="pm-objetivo-select" data-campid="${c.id}">
+          <option value="">Sin objetivo</option>
+          ${objetivoOptions}
+        </select>
         <button class="pm-save-btn" data-campid="${c.id}">Guardar</button>
       </div>
     </div>`;
 }
 
-async function savePaidMediaAssignment(campaignId, squad, objetivoRaw, btn){
+async function savePaidMediaAssignment(campaignId, squad, objetivo, btn){
   const cfg = await loadConfig();
   if(!cfg || !cfg.sheetId){ toast('No hay Google Sheet configurado.', {icon:'⚠️'}); return; }
-  const objetivo = objetivoRaw === '' || objetivoRaw === null || objetivoRaw === undefined ? null : parseFloat(objetivoRaw);
   if(btn) btn.disabled = true;
   try{
     const res = await fetch('/api/google-ads-assign', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ sheetId: cfg.sheetId, campaignId, squad: squad || '', objetivo: (objetivo===null || isNaN(objetivo)) ? '' : objetivo })
+      body: JSON.stringify({ sheetId: cfg.sheetId, campaignId, squad: squad || '', objetivo: objetivo || '' })
     });
     const json = await res.json().catch(()=>({}));
     if(!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-    GADS_ASSIGN[campaignId] = { squad: squad || null, objetivo: (objetivo===null || isNaN(objetivo)) ? null : objetivo };
+    GADS_ASSIGN[campaignId] = { squad: squad || null, objetivo: objetivo || null };
     const cache = (await loadCache()) || {};
     cache.googleAdsAssign = GADS_ASSIGN;
     await saveCache(cache);
@@ -2172,7 +2180,7 @@ async function init(){
       const card = btn.closest('.pm-card');
       const campaignId = btn.dataset.campid;
       const squad = card.querySelector('.pm-squad-select').value;
-      const objetivo = card.querySelector('.pm-objetivo-input').value;
+      const objetivo = card.querySelector('.pm-objetivo-select').value;
       savePaidMediaAssignment(campaignId, squad, objetivo, btn);
     });
   }
