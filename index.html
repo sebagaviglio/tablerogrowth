@@ -430,22 +430,6 @@
     background: rgba(92,124,119,0.10); border:1px solid var(--border); border-radius:999px;
     padding:2px 8px; display:inline-block; margin-top:8px;
   }
-  .pm-edit-row{ display:flex; gap:6px; margin-top:12px; padding-top:12px; border-top:1px dashed var(--border); flex-wrap:wrap; }
-  .pm-squad-select{
-    flex:1 1 100px; min-width:100px; font-family: var(--font-body); font-size:11px; color: var(--ink-900);
-    background: var(--surface); border:1px solid var(--border); border-radius:8px; padding:5px 6px;
-  }
-  .pm-objetivo-select{
-    flex:1 1 100px; min-width:100px; font-family: var(--font-body); font-size:11px; color: var(--ink-900);
-    background: var(--surface); border:1px solid var(--border); border-radius:8px; padding:5px 6px;
-  }
-  .pm-save-btn{
-    font-family: var(--font-mono); font-size:10.5px; font-weight:600; color: var(--teal-500);
-    background: var(--surface); border:1px solid var(--teal-500); border-radius:8px; padding:5px 10px;
-    cursor:pointer; transition: all .15s ease;
-  }
-  .pm-save-btn:hover{ background: var(--teal-500); color:#fff; }
-  .pm-save-btn:disabled{ opacity:0.5; cursor:default; }
   .pm-empty, .pm-error{
     font-size:13px; color: var(--ink-500); padding: 18px 4px; text-align:center;
   }
@@ -545,7 +529,7 @@
     <div class="pm-head collapsible-head" id="paidmedia-toggle-row">
       <div>
         <h3><span class="lime-dot"></span>Medios pagos · Google Ads</h3>
-        <div class="pm-sub">Gasto y CPA en vivo desde Google Ads, cuenta 113-524-1144 (MCC) · mostrando solo las campañas asignadas al squad activo · Squad y Objetivo se pueden cargar acá mismo o en la pestaña "Google Ads" del Sheet</div>
+        <div class="pm-sub">Gasto y CPA en vivo desde Google Ads, cuenta 113-524-1144 (MCC) · mostrando solo las campañas asignadas al squad activo · Squad y Objetivo se cargan en la pestaña "Google Ads" del Sheet</div>
       </div>
       <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
         <div class="panel-toggle-area">
@@ -891,8 +875,8 @@ function parseCampaignsTab(rows){
 
 // Pestaña "Google Ads": la escribe sola el proxy (api/google-ads-sheet-sync.js)
 // con ID/Nombre/Cuenta/Estado/Gasto/CPA recalculados en cada sync, y el equipo
-// carga a mano las columnas Squad y Objetivo (nunca se pisan desde acá) — ya sea
-// directo en el Sheet o desde el propio panel del tablero (ver savePaidMediaAssignment).
+// carga a mano las columnas Squad y Objetivo directo en el Sheet (nunca se pisan
+// desde acá). El tablero es de solo lectura para estas dos columnas.
 // "Objetivo" es categórico (el tipo de objetivo de la campaña en Google Ads: Descargas,
 // Registros, Conversión, Alcance), no un monto — no hay ritmo que calcular acá.
 const GADS_OBJETIVOS = ['Descargas', 'Registros', 'Conversión', 'Alcance'];
@@ -1922,10 +1906,9 @@ async function fetchPaidMedia(monthIdx, force){
 }
 
 // Empuja el snapshot de campañas (ID/Nombre/Cuenta/Estado/Gasto/CPA) a la pestaña
-// "Google Ads" del Sheet, preservando Squad/Objetivo ya cargados a mano o desde
-// el panel (ver api/google-ads-assign.js). No hace falta esperar a esto para
-// mostrar el panel — el gasto en pantalla siempre sale en vivo de
-// /api/google-ads-proxy, esto es solo para que el equipo tenga
+// "Google Ads" del Sheet, preservando Squad/Objetivo ya cargados a mano ahí. No
+// hace falta esperar a esto para mostrar el panel — el gasto en pantalla siempre
+// sale en vivo de /api/google-ads-proxy, esto es solo para que el equipo tenga
 // dónde asignar squad/objetivo. Si el endpoint no está desplegado o le faltan
 // variables de entorno todavía, falla en silencio (no rompe el resto del refresh).
 async function syncPaidMediaToSheet(monthIdx){
@@ -1979,12 +1962,6 @@ function pmCardHTML(c, data){
   const squadTag = squad
     ? `<div class="pm-squad-tag" style="color:${squadColor || 'var(--ink-500)'}">${squad}</div>`
     : '';
-  const squadOptions = Object.keys(DATASET).map(sq =>
-    `<option value="${sq}" ${sq===squad ? 'selected' : ''}>${sq}</option>`
-  ).join('');
-  const objetivoOptions = GADS_OBJETIVOS.map(o =>
-    `<option value="${o}" ${o===objetivo ? 'selected' : ''}>${o}</option>`
-  ).join('');
 
   return `<div class="pm-card">
       <div class="pm-name">${c.name}</div>
@@ -1997,43 +1974,7 @@ function pmCardHTML(c, data){
       </div>
       ${pmSparkline(c.daily)}
       ${pmObjetivoBadgeHTML(objetivo)}
-      <div class="pm-edit-row">
-        <select class="pm-squad-select" data-campid="${c.id}">
-          <option value="">Sin asignar</option>
-          ${squadOptions}
-        </select>
-        <select class="pm-objetivo-select" data-campid="${c.id}">
-          <option value="">Sin objetivo</option>
-          ${objetivoOptions}
-        </select>
-        <button class="pm-save-btn" data-campid="${c.id}">Guardar</button>
-      </div>
     </div>`;
-}
-
-async function savePaidMediaAssignment(campaignId, squad, objetivo, btn){
-  const cfg = await loadConfig();
-  if(!cfg || !cfg.sheetId){ toast('No hay Google Sheet configurado.', {icon:'⚠️'}); return; }
-  if(btn) btn.disabled = true;
-  try{
-    const res = await fetch('/api/google-ads-assign', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ sheetId: cfg.sheetId, campaignId, squad: squad || '', objetivo: objetivo || '' })
-    });
-    const json = await res.json().catch(()=>({}));
-    if(!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-    GADS_ASSIGN[campaignId] = { squad: squad || null, objetivo: objetivo || null };
-    const cache = (await loadCache()) || {};
-    cache.googleAdsAssign = GADS_ASSIGN;
-    await saveCache(cache);
-    toast('Guardado.', {icon:'✅'});
-    renderPaidMedia();
-  }catch(e){
-    toast('No se pudo guardar en el Sheet: ' + (e && e.message ? e.message : 'error desconocido'), {icon:'⚠️'});
-  }finally{
-    if(btn) btn.disabled = false;
-  }
 }
 
 function renderPaidMedia(loadingOnly){
@@ -2172,18 +2113,6 @@ async function init(){
   const pmToggleRow = document.getElementById('paidmedia-toggle-row');
   if(pmToggleRow) pmToggleRow.onclick = togglePaidMediaPanel;
 
-  const pmGrid = document.getElementById('pm-grid');
-  if(pmGrid){
-    pmGrid.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.pm-save-btn');
-      if(!btn) return;
-      const card = btn.closest('.pm-card');
-      const campaignId = btn.dataset.campid;
-      const squad = card.querySelector('.pm-squad-select').value;
-      const objetivo = card.querySelector('.pm-objetivo-select').value;
-      savePaidMediaAssignment(campaignId, squad, objetivo, btn);
-    });
-  }
   document.getElementById('close-settings-btn').onclick = ()=> document.getElementById('settings-overlay').classList.remove('open');
   document.getElementById('settings-overlay').onclick = (e)=>{ if(e.target.id==='settings-overlay') e.currentTarget.classList.remove('open'); };
 
