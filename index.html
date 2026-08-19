@@ -417,6 +417,7 @@
   .pm-card:hover{ border-color: var(--orange-fill); }
   .pm-card .pm-name{ font-family: var(--font-display); font-weight:600; font-size:13px; color:var(--ink-900); line-height:1.25; margin-bottom:2px; }
   .pm-card .pm-status{ font-family: var(--font-mono); font-size:9px; text-transform:uppercase; letter-spacing:0.5px; color: var(--ink-500); }
+  .pm-card .pm-squad-tag{ font-family: var(--font-mono); font-size:9.5px; font-weight:600; margin-top:4px; }
   .pm-card .pm-figs{ display:flex; justify-content:space-between; gap:8px; margin-top:10px; font-family: var(--font-mono); font-size:10px; color: var(--ink-500); }
   .pm-card .pm-figs b{ display:block; font-size:14px; color: var(--ink-900); font-family: var(--font-body); }
   .pm-badge-neutral{
@@ -507,7 +508,7 @@
     <div class="pm-head">
       <div>
         <h3><span class="lime-dot"></span>Medios pagos · Google Ads</h3>
-        <div class="pm-sub">Gasto y CPA por campaña, cuenta 113-524-1144 (MCC, agregado de sus cuentas hija) · mes seleccionado arriba · sin objetivo de gasto cargado todavía (se agrega más adelante)</div>
+        <div class="pm-sub">Gasto y CPA en vivo desde Google Ads, cuenta 113-524-1144 (MCC) · Squad y Presupuesto se cargan a mano en la pestaña "Google Ads" del Sheet</div>
       </div>
       <div class="pm-meta" id="pm-meta">—</div>
     </div>
@@ -845,6 +846,30 @@ function parseCampaignsTab(rows){
   return out;
 }
 
+// Pestaña "Google Ads": la escribe sola el proxy (api/google-ads-sheet-sync.js)
+// con ID/Nombre/Cuenta/Estado/Gasto/CPA recalculados en cada sync, y el equipo
+// carga a mano las columnas Squad y Presupuesto (nunca se pisan desde acá).
+function parseGoogleAdsTab(rows){
+  if(!rows || !rows.length) return {};
+  const header = rows[0].map(h => norm(h).toLowerCase());
+  const idx = {
+    id: header.findIndex(h => h === 'id'),
+    squad: header.findIndex(h => h.includes('squad')),
+    presupuesto: header.findIndex(h => h.includes('presupuesto')),
+  };
+  const out = {};
+  for(let r=1; r<rows.length; r++){
+    const row = rows[r]; if(!row) continue;
+    const id = idx.id>=0 ? norm(row[idx.id]) : '';
+    if(!id) continue;
+    const squad = idx.squad>=0 ? norm(row[idx.squad]) : '';
+    const presupuestoRaw = idx.presupuesto>=0 ? (row[idx.presupuesto]||'') : '';
+    const presupuesto = parseFloat(String(presupuestoRaw).replace(/[^0-9.-]/g,''));
+    out[id] = { squad: squad || null, presupuesto: isNaN(presupuesto) ? null : presupuesto };
+  }
+  return out;
+}
+
 // Combina Plan Anual + las 12 pestañas mensuales (ya parseadas) en el formato REAL_SEED
 function combineSheetData(planData, monthlyByTab){
   const seed = {};
@@ -878,6 +903,7 @@ let DATASET = {};
 let ACTIVE_SEGMENT = null;
 let isDemo = true;
 let CAMPAIGNS = []; // cargado desde la pestaña "Campañas" del Sheet (Azure DevOps)
+let GADS_ASSIGN = {}; // cargado desde la pestaña "Google Ads" del Sheet: id -> {squad, presupuesto}
 
 /* ---------- HELPERS ---------- */
 function fmtNum(n){
@@ -1139,9 +1165,22 @@ async function fetchFromSheet(showToast=true){
       diag(`Campañas: sin datos todavía (${campErr && campErr.message ? campErr.message : campErr})`);
     }
 
-    await saveCache({seed, campaigns: CAMPAIGNS, fetchedAt: new Date().toISOString()});
+    // Pestaña "Google Ads": igual de opcional — el proxy la crea sola en el primer sync.
+    // Si todavía no existe, no rompe nada, el panel de Paid Media sigue mostrando
+    // gasto/CPA en vivo, solo sin squad ni ritmo hasta que exista.
+    try{
+      const gadsCSV = await fetchTabCSV(cfg.sheetId, 'Google Ads', cfg.appsScriptUrl);
+      GADS_ASSIGN = parseGoogleAdsTab(parseCSV(gadsCSV));
+      diag(`Google Ads (asignaciones) OK — ${Object.keys(GADS_ASSIGN).length} campañas con squad/presupuesto en el Sheet`);
+    }catch(gadsErr){
+      GADS_ASSIGN = {};
+      diag(`Google Ads (asignaciones): sin datos todavía (${gadsErr && gadsErr.message ? gadsErr.message : gadsErr})`);
+    }
+
+    await saveCache({seed, campaigns: CAMPAIGNS, googleAdsAssign: GADS_ASSIGN, fetchedAt: new Date().toISOString()});
     if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
     renderAll();
+    renderPaidMedia();
     diag(`Listo. Squads en el panel: ${Object.keys(DATASET).join(', ')}`);
     showDiag();
     if(showToast) toast('Sincronizado con Google Sheets', {icon:'✅'});
@@ -1804,6 +1843,27 @@ async function fetchPaidMedia(monthIdx, force){
   if(SELECTED_MONTH_IDX === monthIdx) renderPaidMedia();
 }
 
+// Empuja el snapshot de campañas (ID/Nombre/Cuenta/Estado/Gasto/CPA) a la pestaña
+// "Google Ads" del Sheet, preservando Squad/Presupuesto ya cargados a mano. No
+// hace falta esperar a esto para mostrar el panel — el gasto en pantalla siempre
+// sale en vivo de /api/google-ads-proxy, esto es solo para que el equipo tenga
+// dónde asignar squad/objetivo. Si el endpoint no está desplegado o le faltan
+// variables de entorno todavía, falla en silencio (no rompe el resto del refresh).
+async function syncPaidMediaToSheet(monthIdx){
+  try{
+    const cfg = await loadConfig();
+    const sheetId = cfg && cfg.sheetId;
+    if(!sheetId) return;
+    const key = pmMonthKey(monthIdx);
+    const res = await fetch(`/api/google-ads-sheet-sync?sheetId=${encodeURIComponent(sheetId)}&month=${key}`, {cache:'no-store'});
+    const json = await res.json().catch(()=>({}));
+    if(!res.ok) console.warn('[Bancor Growth] sync Google Ads → Sheet falló:', json.error || res.status);
+  }catch(e){
+    console.warn('[Bancor Growth] sync Google Ads → Sheet falló:', e.message);
+  }
+}
+
+
 function pmSparkline(daily){
   const w=200,h=36;
   const valid = daily.map((v,i)=>[i,v]).filter(([,v])=>v!==null && v!==undefined);
@@ -1846,16 +1906,37 @@ function renderPaidMedia(loadingOnly){
 
   grid.innerHTML = data.campaigns.map(c=>{
     const statusLabel = (c.status||'').toLowerCase();
+    const assign = GADS_ASSIGN[c.id] || null;
+    const squad = assign ? assign.squad : null;
+    const squadColor = squad && SQUAD_COLORS[squad] ? SQUAD_COLORS[squad] : null;
+    const squadTag = squad
+      ? `<div class="pm-squad-tag" style="color:${squadColor || 'var(--ink-500)'}">${squad}</div>`
+      : '';
+
+    const presupuesto = assign && assign.presupuesto ? assign.presupuesto : null;
+    let objetivoHTML = `<div class="pm-badge-neutral">sin objetivo definido</div>`;
+    if(presupuesto){
+      const asOfDay = parseInt((data.endDate||'').slice(8,10), 10) || 1;
+      const daysInSelMonth = new Date(PM_YEAR, SELECTED_MONTH_IDX+1, 0).getDate();
+      const ritmo = c.spend / (presupuesto * (asOfDay/daysInSelMonth));
+      const ritmoClass = ritmo > 1.15 ? 'bad' : (ritmo < 0.85 ? 'warn' : 'ok');
+      objetivoHTML = `<div class="pm-figs" style="margin-top:8px;">
+          <div>Presupuesto<b>$${fmtNum(presupuesto)}</b></div>
+          <div><span class="badge ${ritmoClass} has-tip tip-right" data-tip="Ritmo = gasto acumulado ÷ presupuesto prorrateado a los ${asOfDay} días con datos de ${MONTHS[SELECTED_MONTH_IDX]}. >100% = está gastando más rápido de lo presupuestado.">${pct(ritmo)}</span></div>
+        </div>`;
+    }
+
     return `<div class="pm-card">
       <div class="pm-name">${c.name}</div>
       <div class="pm-status">${statusLabel}${c.accountName ? ' · ' + c.accountName : ''}</div>
+      ${squadTag}
       <div class="pm-figs">
         <div>Gasto<b>$${fmtNum(c.spend)}</b></div>
         <div>CPA<b>${c.cpa!==null ? '$'+fmtNum(c.cpa) : '—'}</b></div>
         <div>Clics<b>${fmtNum(c.clicks)}</b></div>
       </div>
       ${pmSparkline(c.daily)}
-      <div class="pm-badge-neutral">sin objetivo definido</div>
+      ${objetivoHTML}
     </div>`;
   }).join('');
 }
@@ -1870,6 +1951,7 @@ async function autoCheckLoop(){
   const now = new Date();
   if(now.getHours() >= 20 && lastAutoCheckDate !== now.toDateString()){
     lastAutoCheckDate = now.toDateString();
+    await syncPaidMediaToSheet(SELECTED_MONTH_IDX);
     await fetchFromSheet(true);
     await fetchPaidMedia(SELECTED_MONTH_IDX, true);
   }
@@ -1905,6 +1987,7 @@ async function init(){
     if(cache && cache.seed){
       DATASET = buildWorkingDataset(cache.seed); isDemo = false; ACTIVE_SEGMENT = Object.keys(DATASET)[0];
       CAMPAIGNS = cache.campaigns || [];
+      GADS_ASSIGN = cache.googleAdsAssign || {};
       renderAll();
       document.getElementById('last-sync').textContent = new Date(cache.fetchedAt).toLocaleString('es-AR');
     } else {
@@ -1955,6 +2038,7 @@ async function init(){
   document.getElementById('refresh-btn').onclick = async (e)=>{
     const btn = e.currentTarget;
     btn.classList.add('loading');
+    await syncPaidMediaToSheet(SELECTED_MONTH_IDX); // corre antes: si es el primer sync, crea la pestaña "Google Ads" recién ahí
     await Promise.all([
       fetchFromSheet(true),
       fetchPaidMedia(SELECTED_MONTH_IDX, true)
