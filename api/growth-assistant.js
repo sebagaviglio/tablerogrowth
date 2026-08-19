@@ -218,16 +218,18 @@ async function getBaseContext() {
     coreError = String(err.message || err);
   }
 
-  // "Campañas" y "Equipo" son un plus: si fallan, seguimos igual con el resto.
+  // "Campañas", "Equipo" y "Google Ads" son un plus: si fallan, seguimos igual con el resto.
   let campaignsCsv = null, campaignsError = null;
   let equipoCsv = null, equipoError = null;
+  let googleAdsCsv = null, googleAdsError = null;
   await Promise.all([
     fetchTab('Campañas').then((csv) => { campaignsCsv = csv.slice(0, 6000); }).catch((err) => { campaignsError = String(err.message || err); }),
-    fetchTab('Equipo').then((csv) => { equipoCsv = csv.slice(0, 3000); }).catch((err) => { equipoError = String(err.message || err); })
+    fetchTab('Equipo').then((csv) => { equipoCsv = csv.slice(0, 3000); }).catch((err) => { equipoError = String(err.message || err); }),
+    fetchTab('Google Ads').then((csv) => { googleAdsCsv = csv.slice(0, 4000); }).catch((err) => { googleAdsError = String(err.message || err); })
   ]);
 
   if (coreError) {
-    return { planAnualCsv: null, monthCsv: null, currentMonthTab, campaignsCsv, campaignsError, equipoCsv, equipoError, fetchedAt: new Date().toISOString(), error: coreError };
+    return { planAnualCsv: null, monthCsv: null, currentMonthTab, campaignsCsv, campaignsError, equipoCsv, equipoError, googleAdsCsv, googleAdsError, fetchedAt: new Date().toISOString(), error: coreError };
   }
 
   const payload = {
@@ -238,6 +240,8 @@ async function getBaseContext() {
     campaignsError,
     equipoCsv,
     equipoError,
+    googleAdsCsv,
+    googleAdsError,
     fetchedAt: new Date().toISOString()
   };
   baseCache = { payload, fetchedAt: now };
@@ -319,6 +323,22 @@ function buildSystemPrompt(liveContext) {
         ? `\n(No se pudo leer la pestaña "Equipo" en este momento: ${liveContext.equipoError}.)`
         : '';
 
+    const googleAdsBlock = liveContext.googleAdsCsv
+      ? `\n--- Pestaña "Google Ads" (cuenta MCC 113-524-1144, agregado de cuentas hija) ---\n${liveContext.googleAdsCsv}\n\nCómo leer "Google Ads": columnas ID | Nombre | Cuenta | Estado | Gasto MTD | CPA |
+  Squad | Presupuesto. "Gasto MTD" es el gasto acumulado en lo que va del mes
+  (month-to-date), y "CPA" el costo por adquisición de esa campaña puntual.
+  Esta pestaña es una fuente distinta de "Campañas" (esa viene de Azure DevOps,
+  ésta directo de Google Ads) — pueden referirse a la misma campaña real con
+  nombres parecidos pero no idénticos; si el nombre no coincide exacto, decilo
+  en vez de asumir que son la misma. Cruzala con el ritmo del squad correspondiente:
+  gasto alto + CPA alto + ritmo atrasado es una señal fuerte de ineficiencia en medios
+  pagos que vale la pena señalar. No inventes gasto, CPA ni presupuesto que no
+  esté explícito en esta pestaña — y no confundas "Presupuesto" (lo planeado)
+  con "Gasto MTD" (lo efectivamente gastado).`
+      : liveContext.googleAdsError
+        ? `\n(No se pudo leer la pestaña "Google Ads" en este momento: ${liveContext.googleAdsError}. Si preguntan por gasto en medios pagos, avisá que no lo tenés disponible ahora.)`
+        : '';
+
     dataBlock = `Datos crudos leídos en vivo del Sheet (${liveContext.fetchedAt}).
 
 --- Pestaña "Plan Anual" (objetivos mensuales, fuente de verdad) ---
@@ -329,6 +349,7 @@ ${liveContext.monthCsv}
 ${extraBlocks}
 ${campaignsBlock}
 ${equipoBlock}
+${googleAdsBlock}
 
 Cómo leer estos CSV:
 - "Plan Anual": columnas Squad | Producto | KPI / Métrica | Ene...Dic. Cada celda de
