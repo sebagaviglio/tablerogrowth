@@ -544,6 +544,26 @@
     </div>
   </div>
 
+  <!-- PAID MEDIA (Meta Ads) -->
+  <div class="paidmedia-panel">
+    <div class="pm-head collapsible-head" id="metamedia-toggle-row">
+      <div>
+        <h3><span class="lime-dot" style="background:var(--magenta-fill); box-shadow:0 0 6px var(--magenta-fill);"></span>Medios pagos · Meta Ads</h3>
+        <div class="pm-sub">Gasto y conversiones en vivo desde Meta Ads (Facebook/Instagram) · mostrando solo las campañas asignadas al squad activo · Objetivo se trae automático de Meta, Squad se carga en la pestaña "Meta Ads" del Sheet</div>
+      </div>
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+        <div class="panel-toggle-area">
+          <span class="panel-count-badge" id="metamedia-count-badge">—</span>
+          <span class="panel-chevron" id="metamedia-chevron">▸</span>
+        </div>
+        <div class="pm-meta" id="mm-meta">—</div>
+      </div>
+    </div>
+    <div class="pm-grid" id="mm-grid">
+      <div class="pm-empty">Cargando datos de Meta Ads...</div>
+    </div>
+  </div>
+
   <footer>
     <div class="sync-status">
       <span id="demo-flag" class="demo-flag" style="display:none;">Datos de ejemplo</span>
@@ -645,6 +665,7 @@ function populateMonthSelect(){
     SELECTED_MONTH_IDX = parseInt(sel.value, 10);
     renderAll();
     fetchPaidMedia(SELECTED_MONTH_IDX);
+    fetchMetaMedia(SELECTED_MONTH_IDX);
   };
 }
 
@@ -906,6 +927,62 @@ function parseGoogleAdsTab(rows){
   return out;
 }
 
+// Pestaña "Meta Ads": la escribe sola el proxy (api/meta-ads-sheet-sync.js)
+// con ID/Nombre/Estado/Objetivo/Gasto/Conversiones/CPA recalculados en cada
+// sync, y el equipo carga a mano SOLO la columna Squad (a diferencia de
+// Google Ads, acá "Objetivo" no se tipea: sale directo de la API de Meta
+// — campaign.objective — y se re-escribe en cada sync, no es editable).
+const META_OBJETIVO_LABELS = {
+  OUTCOME_SALES: 'Ventas',
+  OUTCOME_LEADS: 'Leads',
+  OUTCOME_ENGAGEMENT: 'Interacción',
+  OUTCOME_AWARENESS: 'Reconocimiento',
+  OUTCOME_TRAFFIC: 'Tráfico',
+  OUTCOME_APP_PROMOTION: 'Promoción de app',
+  CONVERSIONS: 'Conversión',
+  LINK_CLICKS: 'Tráfico',
+  LEAD_GENERATION: 'Leads',
+  BRAND_AWARENESS: 'Reconocimiento',
+  REACH: 'Alcance',
+  APP_INSTALLS: 'Promoción de app',
+  VIDEO_VIEWS: 'Interacción',
+  MESSAGES: 'Interacción',
+  PRODUCT_CATALOG_SALES: 'Ventas',
+  STORE_VISITS: 'Visitas a local',
+  POST_ENGAGEMENT: 'Interacción',
+};
+const META_OBJETIVO_COLORS = {
+  'Ventas': 'var(--lime-ink)',
+  'Leads': 'var(--gold-ink)',
+  'Interacción': 'var(--lavender-ink)',
+  'Reconocimiento': 'var(--teal-500)',
+  'Tráfico': 'var(--orange-ink)',
+  'Promoción de app': 'var(--magenta-ink)',
+  'Alcance': 'var(--teal-500)',
+  'Visitas a local': 'var(--gold-ink)',
+};
+function metaObjetivoLabel(objective){
+  if(!objective) return null;
+  return META_OBJETIVO_LABELS[objective] || objective;
+}
+function parseMetaAdsTab(rows){
+  if(!rows || !rows.length) return {};
+  const header = rows[0].map(h => norm(h).toLowerCase());
+  const idx = {
+    id: header.findIndex(h => h === 'id'),
+    squad: header.findIndex(h => h.includes('squad')),
+  };
+  const out = {};
+  for(let r=1; r<rows.length; r++){
+    const row = rows[r]; if(!row) continue;
+    const id = idx.id>=0 ? norm(row[idx.id]) : '';
+    if(!id) continue;
+    const squad = idx.squad>=0 ? norm(row[idx.squad]) : '';
+    out[id] = { squad: squad || null };
+  }
+  return out;
+}
+
 
 // Combina Plan Anual + las 12 pestañas mensuales (ya parseadas) en el formato REAL_SEED
 function combineSheetData(planData, monthlyByTab){
@@ -941,6 +1018,7 @@ let ACTIVE_SEGMENT = null;
 let isDemo = true;
 let CAMPAIGNS = []; // cargado desde la pestaña "Campañas" del Sheet (Azure DevOps)
 let GADS_ASSIGN = {}; // cargado desde la pestaña "Google Ads" del Sheet: id -> {squad, objetivo}
+let MADS_ASSIGN = {}; // cargado desde la pestaña "Meta Ads" del Sheet: id -> {squad}
 
 /* ---------- HELPERS ---------- */
 function fmtNum(n){
@@ -1214,7 +1292,20 @@ async function fetchFromSheet(showToast=true){
       diag(`Google Ads (asignaciones): sin datos todavía (${gadsErr && gadsErr.message ? gadsErr.message : gadsErr})`);
     }
 
-    await saveCache({seed, campaigns: CAMPAIGNS, googleAdsAssign: GADS_ASSIGN, fetchedAt: new Date().toISOString()});
+    // Pestaña "Meta Ads": mismo patrón que "Google Ads", pero acá solo se
+    // carga a mano la columna Squad — el Objetivo lo trae automático el
+    // proxy directo de la API de Meta (campaign.objective), no hace falta
+    // tipearlo. La crea sola api/meta-ads-sheet-sync.js en el primer sync.
+    try{
+      const madsCSV = await fetchTabCSV(cfg.sheetId, 'Meta Ads', cfg.appsScriptUrl);
+      MADS_ASSIGN = parseMetaAdsTab(parseCSV(madsCSV));
+      diag(`Meta Ads (asignaciones) OK — ${Object.keys(MADS_ASSIGN).length} campañas con squad en el Sheet`);
+    }catch(madsErr){
+      MADS_ASSIGN = {};
+      diag(`Meta Ads (asignaciones): sin datos todavía (${madsErr && madsErr.message ? madsErr.message : madsErr})`);
+    }
+
+    await saveCache({seed, campaigns: CAMPAIGNS, googleAdsAssign: GADS_ASSIGN, metaAdsAssign: MADS_ASSIGN, fetchedAt: new Date().toISOString()});
     if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
     renderAll();
     renderPaidMedia();
@@ -1977,6 +2068,168 @@ function pmCardHTML(c, data){
     </div>`;
 }
 
+/* ---------- PAID MEDIA (Meta Ads) ----------
+   Mismo patrón que el bloque de Google Ads de arriba: panel aparte, mismo
+   SELECTED_MONTH_IDX, mismo mecanismo de caché vía storageGet/storageSet,
+   hablando con /api/meta-ads-proxy (nunca con Meta directo, por las
+   credenciales). Única cuenta publicitaria, sin MCC. */
+let META_MEDIA_CACHE = {}; // "YYYY-MM" -> {data, fetchedAt, error}
+
+function mmMonthKey(monthIdx){ return pmMonthKey(monthIdx); } // mismo formato, mismo año (PM_YEAR)
+
+async function loadMetaMediaCacheFromStorage(){
+  try{
+    const v = await storageGet('bancor_metamedia_cache');
+    if(v) META_MEDIA_CACHE = JSON.parse(v);
+  }catch(e){}
+}
+async function saveMetaMediaCacheToStorage(){
+  try{ await storageSet('bancor_metamedia_cache', JSON.stringify(META_MEDIA_CACHE)); }catch(e){}
+}
+
+async function fetchMetaMedia(monthIdx, force){
+  const key = mmMonthKey(monthIdx);
+  if(!force && META_MEDIA_CACHE[key] && META_MEDIA_CACHE[key].data){
+    renderMetaMedia();
+    return;
+  }
+  if(SELECTED_MONTH_IDX === monthIdx) renderMetaMedia(true);
+  try{
+    const res = await fetch(`/api/meta-ads-proxy?month=${key}`, {cache:'no-store'});
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    META_MEDIA_CACHE[key] = {data: json, fetchedAt: Date.now(), error: null};
+  }catch(e){
+    META_MEDIA_CACHE[key] = {data: (META_MEDIA_CACHE[key]&&META_MEDIA_CACHE[key].data)||null, fetchedAt: META_MEDIA_CACHE[key]&&META_MEDIA_CACHE[key].fetchedAt, error: e.message};
+  }
+  await saveMetaMediaCacheToStorage();
+  if(SELECTED_MONTH_IDX === monthIdx) renderMetaMedia();
+}
+
+// Empuja el snapshot (ID/Nombre/Estado/Objetivo/Gasto/Conversiones/CPA) a la
+// pestaña "Meta Ads" del Sheet, preservando Squad ya cargado a mano ahí (el
+// Objetivo NO se preserva: se re-escribe siempre con lo que diga la API de
+// Meta). El gasto en pantalla sale en vivo de /api/meta-ads-proxy — esto es
+// solo para que el equipo tenga dónde asignar squad. Falla en silencio si
+// el endpoint no está desplegado todavía.
+async function syncMetaMediaToSheet(monthIdx){
+  try{
+    const cfg = await loadConfig();
+    const sheetId = cfg && cfg.sheetId;
+    if(!sheetId) return;
+    const key = mmMonthKey(monthIdx);
+    const res = await fetch(`/api/meta-ads-sheet-sync?sheetId=${encodeURIComponent(sheetId)}&month=${key}`, {cache:'no-store'});
+    const json = await res.json().catch(()=>({}));
+    if(!res.ok) console.warn('[Bancor Growth] sync Meta Ads → Sheet falló:', json.error || res.status);
+  }catch(e){
+    console.warn('[Bancor Growth] sync Meta Ads → Sheet falló:', e.message);
+  }
+}
+
+let METAMEDIA_COLLAPSED = true; // colapsado por default
+
+function toggleMetaMediaPanel(){
+  METAMEDIA_COLLAPSED = !METAMEDIA_COLLAPSED;
+  renderMetaMedia();
+}
+
+function mmObjetivoBadgeHTML(objective){
+  const label = metaObjetivoLabel(objective);
+  if(!label) return `<div class="pm-badge-neutral">sin objetivo en Meta</div>`;
+  const color = META_OBJETIVO_COLORS[label] || 'var(--ink-500)';
+  return `<div class="pm-badge-neutral" style="color:${color}; border-color:${color};">${label}</div>`;
+}
+
+function mmCardHTML(c, data){
+  const statusLabel = (c.status||'').toLowerCase();
+  const assign = MADS_ASSIGN[c.id] || null;
+  const squad = assign ? assign.squad : null;
+  const squadColor = squad && SQUAD_COLORS[squad] ? SQUAD_COLORS[squad] : null;
+  const squadTag = squad
+    ? `<div class="pm-squad-tag" style="color:${squadColor || 'var(--ink-500)'}">${squad}</div>`
+    : '';
+
+  return `<div class="pm-card">
+      <div class="pm-name">${c.name}</div>
+      <div class="pm-status">${statusLabel}</div>
+      ${squadTag}
+      <div class="pm-figs">
+        <div>Gasto<b>$${fmtNum(c.spend)}</b></div>
+        <div>Conversiones<b>${fmtNum(c.conversions)}</b></div>
+        <div>CPA<b>${c.cpa!==null ? '$'+fmtNum(c.cpa) : '—'}</b></div>
+      </div>
+      ${pmSparkline(c.daily)}
+      ${mmObjetivoBadgeHTML(c.objective)}
+    </div>`;
+}
+
+function renderMetaMedia(loadingOnly){
+  const grid = document.getElementById('mm-grid');
+  const meta = document.getElementById('mm-meta');
+  const countBadge = document.getElementById('metamedia-count-badge');
+  const chevron = document.getElementById('metamedia-chevron');
+  if(!grid) return;
+
+  grid.style.display = METAMEDIA_COLLAPSED ? 'none' : 'block';
+  if(chevron) chevron.classList.toggle('open', !METAMEDIA_COLLAPSED);
+
+  const key = mmMonthKey(SELECTED_MONTH_IDX);
+  const entry = META_MEDIA_CACHE[key];
+
+  function splitByActiveSquad(campaigns){
+    const assigned = [], unassigned = [];
+    campaigns.forEach(c=>{
+      const a = MADS_ASSIGN[c.id];
+      if(a && a.squad === ACTIVE_SEGMENT) assigned.push(c);
+      else if(!a || !a.squad) unassigned.push(c);
+    });
+    return { assigned, unassigned };
+  }
+
+  if(countBadge){
+    if(loadingOnly || !entry){
+      countBadge.textContent = '…';
+    } else if(entry.error && !entry.data){
+      countBadge.textContent = '⚠';
+    } else {
+      const camps = (entry.data && entry.data.campaigns) || [];
+      const { assigned, unassigned } = splitByActiveSquad(camps);
+      const shown = assigned.length + unassigned.length;
+      countBadge.textContent = `${shown} en vista`;
+    }
+  }
+
+  if(METAMEDIA_COLLAPSED) return;
+
+  if(loadingOnly || !entry){
+    grid.innerHTML = '<div class="pm-empty">Cargando datos de Meta Ads...</div>';
+    meta.textContent = '';
+    return;
+  }
+  const data = entry.data;
+  if(!data || !data.campaigns || !data.campaigns.length){
+    grid.innerHTML = `<div class="pm-empty">Sin campañas con gasto en ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}.</div>`;
+    meta.textContent = entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '';
+    return;
+  }
+  meta.textContent = (entry.error ? '⚠ último intento de refresco falló — mostrando el último dato bueno · ' : '') +
+    (entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '');
+
+  const { assigned, unassigned } = splitByActiveSquad(data.campaigns);
+
+  let html = '';
+  if(unassigned.length){
+    html += `<div class="pm-section-label">Sin asignar (${unassigned.length}) — asignalas a un squad acá abajo</div>`;
+    html += `<div class="pm-cards-grid">${unassigned.map(c=>mmCardHTML(c, data)).join('')}</div>`;
+  }
+  html += `<div class="pm-section-label" style="margin-top:${unassigned.length?'18px':'0'};">${ACTIVE_SEGMENT} (${assigned.length})</div>`;
+  html += assigned.length
+    ? `<div class="pm-cards-grid">${assigned.map(c=>mmCardHTML(c, data)).join('')}</div>`
+    : `<div class="pm-empty">Sin campañas de Meta Ads asignadas a ${ACTIVE_SEGMENT} todavía.</div>`;
+
+  grid.innerHTML = html;
+}
+
 function renderPaidMedia(loadingOnly){
   const grid = document.getElementById('pm-grid');
   const meta = document.getElementById('pm-meta');
@@ -2060,8 +2313,10 @@ async function autoCheckLoop(){
   if(now.getHours() >= 20 && lastAutoCheckDate !== now.toDateString()){
     lastAutoCheckDate = now.toDateString();
     await syncPaidMediaToSheet(SELECTED_MONTH_IDX);
+    await syncMetaMediaToSheet(SELECTED_MONTH_IDX);
     await fetchFromSheet(true);
     await fetchPaidMedia(SELECTED_MONTH_IDX, true);
+    await fetchMetaMedia(SELECTED_MONTH_IDX, true);
   }
 }
 
@@ -2087,6 +2342,10 @@ async function init(){
   renderPaidMedia();
   fetchPaidMedia(SELECTED_MONTH_IDX);
 
+  await loadMetaMediaCacheFromStorage();
+  renderMetaMedia();
+  fetchMetaMedia(SELECTED_MONTH_IDX);
+
   const cfg = await loadConfig();
   if(cfg && (cfg.sheetId || cfg.appsScriptUrl)){
     if(cfg.sheetId) document.getElementById('input-sheet-id').value = cfg.sheetId;
@@ -2096,6 +2355,7 @@ async function init(){
       DATASET = buildWorkingDataset(cache.seed); isDemo = false; ACTIVE_SEGMENT = Object.keys(DATASET)[0];
       CAMPAIGNS = cache.campaigns || [];
       GADS_ASSIGN = cache.googleAdsAssign || {};
+      MADS_ASSIGN = cache.metaAdsAssign || {};
       renderAll();
       document.getElementById('last-sync').textContent = new Date(cache.fetchedAt).toLocaleString('es-AR');
     } else {
@@ -2112,6 +2372,8 @@ async function init(){
   if(campToggleRow) campToggleRow.onclick = toggleCampaignsPanel;
   const pmToggleRow = document.getElementById('paidmedia-toggle-row');
   if(pmToggleRow) pmToggleRow.onclick = togglePaidMediaPanel;
+  const mmToggleRow = document.getElementById('metamedia-toggle-row');
+  if(mmToggleRow) mmToggleRow.onclick = toggleMetaMediaPanel;
 
   document.getElementById('close-settings-btn').onclick = ()=> document.getElementById('settings-overlay').classList.remove('open');
   document.getElementById('settings-overlay').onclick = (e)=>{ if(e.target.id==='settings-overlay') e.currentTarget.classList.remove('open'); };
@@ -2152,9 +2414,11 @@ async function init(){
     const btn = e.currentTarget;
     btn.classList.add('loading');
     await syncPaidMediaToSheet(SELECTED_MONTH_IDX); // corre antes: si es el primer sync, crea la pestaña "Google Ads" recién ahí
+    await syncMetaMediaToSheet(SELECTED_MONTH_IDX); // ídem, crea "Meta Ads" recién ahí
     await Promise.all([
       fetchFromSheet(true),
-      fetchPaidMedia(SELECTED_MONTH_IDX, true)
+      fetchPaidMedia(SELECTED_MONTH_IDX, true),
+      fetchMetaMedia(SELECTED_MONTH_IDX, true)
     ]);
     document.getElementById('last-sync').textContent = new Date().toLocaleString('es-AR');
     btn.classList.remove('loading');
