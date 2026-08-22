@@ -405,6 +405,11 @@
     margin-top: 22px; box-shadow: var(--shadow-sm);
   }
   .pm-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px; }
+  /* El bloque de título+subtítulo puede achicarse y envolver su propio texto;
+     así, aunque el subtítulo sea largo (caso Meta Ads), nunca empuja a la
+     cápsula de conteo + flecha a una segunda línea por debajo. */
+  .pm-head > div:first-child{ flex:1 1 320px; min-width:0; }
+  .pm-head > div:last-child{ flex:0 0 auto; }
   .pm-head h3{ font-family: var(--font-display); font-size:16px; display:flex; align-items:center; gap:8px; color:var(--ink-900); }
   .pm-head h3 .lime-dot{ width:8px; height:8px; border-radius:50%; background:var(--orange-fill); box-shadow:0 0 6px var(--orange-fill); }
   .pm-sub{ font-size:11.5px; color: var(--ink-500); margin-bottom:16px; }
