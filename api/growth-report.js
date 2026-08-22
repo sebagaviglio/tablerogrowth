@@ -1,18 +1,26 @@
 /* ============================================================
    POST /api/growth-report
-   body: { monthTab?: string }  // ej. "Ago" — si no viene, usa el mes en curso
-   resp: { report: {...}, dataAsOf: string }
+   body: { comentariosPO?: { [squadName]: string } }
+   resp: { report: {...}, period: {...}, dataAsOf, commentsSaved, commentsError }
 
-   Genera el contenido (JSON estructurado) del informe semanal de
-   Growth para Dirección: evolución de cumplimiento de objetivos,
-   principales campañas/experimentos del período y 2-3 insights
-   relevantes (positivos y negativos). El front-end (report.js) lo
-   renderiza como pieza visual con identidad Bancor + Bezza.
+   Genera el INFORME SEMANAL de Growth para Dirección: evolución de
+   cumplimiento de objetivos de los ÚLTIMOS 7 DÍAS, principales
+   campañas/experimentos del período (solo si hay algo destacable —
+   nunca se fuerza a mostrar medios pagos si no aportan nada) y 2-3
+   insights relevantes (positivos y negativos).
 
-   Reutiliza exactamente la misma lectura de datos y el mismo
-   cálculo de "ritmo" / Growth Insights que usa el Asistente de
-   Growth (api/_lib/growth-data.js) — el informe nunca puede decir
-   un número distinto al que ve el equipo en el tablero o en el chat.
+   Diseño clave: el "ritmo" semanal por producto/squad y el % de
+   cumplimiento se calculan ACÁ, en código determinístico (mismo
+   criterio que el resto del tablero, ver api/_lib/growth-data.js) —
+   nunca se le pide al modelo que invente o recalcule un porcentaje.
+   A Claude se le pasan esos números ya calculados y se le pide
+   redacción ejecutiva (resumen, bajadas por squad, selección de
+   insights e interpretación) — nunca cifras nuevas.
+
+   Los comentarios que cargan los PO antes de generar el informe se
+   guardan en la pestaña "Comentarios PO" del Sheet (requiere el
+   doPost agregado al Apps Script, ver LEEME_integracion.md) y además
+   se usan como contexto para este informe puntual.
 
    Env vars requeridas (las mismas que ya usa growth-assistant.js):
      ANTHROPIC_API_KEY
@@ -20,13 +28,11 @@
    ============================================================ */
 
 const {
-  MONTH_TABS,
-  MONTH_LABELS_ES,
-  DAYS_IN_MONTH,
-  currentMonthTab,
-  getLiveContext,
-  getExtraMonthTab,
-  getGrowthInsights,
+  getWeeklyContext,
+  computeWeeklyInsightsList,
+  saveWeeklyComments,
+  getRecentPOComments,
+  getBaseContext,
   describeLiveContext
 } = require('./_lib/growth-data');
 
@@ -34,7 +40,6 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const MODEL = 'claude-sonnet-5';
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-
 function stripJsonFences(text) {
   return text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
 }
@@ -102,116 +107,168 @@ async function callClaudeForJson(systemPrompt, userMessage) {
   return { parsed: null, raw: null, debug: lastDebug };
 }
 
-function buildPeriod(monthTab) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const isCurrentMonth = monthTab === currentMonthTab();
-  const monthIdx = MONTH_TABS.indexOf(monthTab);
-  const daysInMonth = DAYS_IN_MONTH[monthIdx] || 30;
-  const asOfDay = isCurrentMonth ? now.getDate() : daysInMonth;
-  const label = isCurrentMonth
-    ? `${MONTH_LABELS_ES[monthTab]} ${year} · del 1 al ${asOfDay} (corte al día de hoy)`
-    : `${MONTH_LABELS_ES[monthTab]} ${year} · mes cerrado`;
-  return {
-    monthTab,
-    label,
-    year,
-    asOfDay,
-    daysInMonth,
-    isCurrentMonth,
-    generatedAt: now.toISOString()
-  };
+const ESTADO_ORDER = ['atrasado', 'vigilar', 'en línea'];
+function estadoFromRitmo(ritmo) {
+  if (ritmo === null || ritmo === undefined) return 'sin datos';
+  if (ritmo >= 1.0) return 'en línea';
+  if (ritmo >= 0.85) return 'vigilar';
+  return 'atrasado';
 }
 
-function buildSystemPrompt(period, dataBlock, insightsText) {
+function parseEquipoPO(equipoCsv) {
+  const map = {};
+  if (!equipoCsv) return map;
+  const lines = equipoCsv.split('\n').map((l) => l.trim()).filter(Boolean);
+  const squadNames = ['Adquisición y Crosselling', 'Habitualidad', 'Bezza Hub', 'Empresas'];
+  lines.forEach((line) => {
+    const cols = line.split(',').map((c) => c.replace(/^"|"$/g, '').trim());
+    squadNames.forEach((sq) => {
+      if (map[sq]) return;
+      if (!cols.some((c) => c.toLowerCase().includes(sq.toLowerCase()))) return;
+      const nameGuess = cols.find((c) => c && c !== sq && c.length > 2 && /[a-záéíóúñ]/i.test(c) && !/po|owner|squad/i.test(c));
+      if (nameGuess) map[sq] = nameGuess;
+    });
+  });
+  return map;
+}
+
+/** Arma el array "squads" con todos los números ya resueltos en código — Claude solo agrega el texto de "headline" por squad. */
+function buildSquadsSkeleton(weeklyDataset, equipoCsv) {
+  const poBySquad = parseEquipoPO(equipoCsv);
+  return Object.keys(weeklyDataset).map((squadName) => {
+    const productos = Object.keys(weeklyDataset[squadName].products).map((prodName) => {
+      const d = weeklyDataset[squadName].products[prodName];
+      const ritmoPct = d.ritmoSemanal !== null ? Math.round(d.ritmoSemanal * 100) : null;
+      return {
+        nombre: prodName,
+        kpi: d.kpi,
+        ritmoPct,
+        estado: d.weeklyTarget > 0 ? estadoFromRitmo(d.ritmoSemanal) : 'sin datos',
+        real: Math.round(d.weeklyReal),
+        objetivo: Math.round(d.weeklyTarget)
+      };
+    });
+    const conDatos = productos.filter((p) => p.ritmoPct !== null);
+    const ritmoPromedioPct = conDatos.length
+      ? Math.round(conDatos.reduce((sum, p) => sum + p.ritmoPct, 0) / conDatos.length)
+      : 0;
+    let estado = 'sin datos';
+    if (conDatos.length) {
+      const estados = conDatos.map((p) => p.estado);
+      estado = ESTADO_ORDER.find((e) => estados.includes(e)) || 'en línea';
+    }
+    return { nombre: squadName, po: poBySquad[squadName] || 'Sin asignar', estado, ritmoPromedioPct, productos };
+  });
+}
+
+function cumplimientoPct(squadsSkeleton) {
+  let total = 0, cumplidos = 0;
+  squadsSkeleton.forEach((sq) => {
+    sq.productos.forEach((p) => {
+      if (p.ritmoPct === null) return;
+      total++;
+      if (p.ritmoPct >= 100) cumplidos++;
+    });
+  });
+  return total > 0 ? Math.round((cumplidos / total) * 100) : 0;
+}
+
+function buildSystemPrompt(periodLabel, squadsSkeleton, weeklyInsightItems, dataBlock, comentariosPO, comentariosHistoricos) {
+  const squadsJson = JSON.stringify(squadsSkeleton, null, 2);
+  const insightsJson = JSON.stringify(weeklyInsightItems, null, 2);
+  const comentariosBlock = Object.keys(comentariosPO || {}).length
+    ? `\n# Comentarios de los PO para esta semana (cargados a mano antes de generar el informe)\n${Object.entries(comentariosPO).map(([sq, txt]) => `- ${sq}: "${txt}"`).join('\n')}\n\nSon información real y de primera mano — tenelos en cuenta al redactar el resumen ejecutivo y las bajadas por squad. Si un comentario contradice o matiza el número de ritmo, mencioná ambos (el dato y la lectura del PO) en vez de ignorar uno de los dos.`
+    : '\n# Comentarios de los PO\nNo se cargaron comentarios de PO para esta semana.';
+  const historicosBlock = (comentariosHistoricos && comentariosHistoricos.length)
+    ? `\n# Comentarios de PO de semanas anteriores (base de conocimiento acumulada, para dar continuidad — no son de esta semana)\n${comentariosHistoricos.map((c) => `- [${c.semana}] ${c.squad}: "${c.texto}"`).join('\n')}`
+    : '';
+
   return `Sos el Asistente de Growth de Bancor generando el INFORME SEMANAL para Dirección
 (el equipo directivo del banco). Lo van a leer personas que no miran el tablero día a día:
-tiene que ser claro, ejecutivo y basado 100% en datos reales, nunca inventado.
+tiene que ser claro, ejecutivo y basado 100% en datos reales.
 
 # Conocimiento de base que aplicás al interpretar los datos
 Frameworks de funnel/loops (AARRR, growth loops), activación y hábito (Hook Model, D1/D7/D30),
 priorización (ICE/RICE), unit economics (CAC, LTV, payback), particularidades de growth en
 banca/fintech (fricción de KYC, confianza como driver de conversión, estacionalidad de medios
-de pago). Usalo para dar contexto a los números, no para inventarlos.
+de pago). Usalo para dar contexto e interpretación, nunca para inventar cifras.
 
-# Período del informe
-${period.label}. Trabajás EXCLUSIVAMENTE con datos de este período — si un dato relevante no
-está disponible para este período, decilo explícitamente en el campo correspondiente en vez
-de omitirlo o de usar un número de otro período sin aclararlo.
+# Período de este informe
+Últimos 7 días: ${periodLabel}. Es un informe SEMANAL, no mensual — toda lectura de ritmo
+y cumplimiento que menciones tiene que referirse a esta ventana de 7 días, no al mes completo
+ni al año.
 
-# El concepto de "ritmo"
-ritmo = acumulado real ÷ objetivo prorrateado a los días con carga real. ≥100% = en línea o
-por encima. 85-100% = para vigilar. ≤85% = atrasado.
+# Ritmo semanal por squad y producto — YA CALCULADO, es la fuente de verdad
+Estos números están calculados en código a partir de los datos reales del Sheet (ritmo semanal
+= acumulado real de los últimos 7 días ÷ objetivo semanal, que es el objetivo mensual de Plan
+Anual prorrateado a 7 días). NO los recalcules, NO los cambies, NO agregues productos o squads
+que no estén en esta lista — solo usalos para escribir la interpretación ejecutiva.
 
-# Datos del negocio (Sheet en vivo, ${period.generatedAt})
+${squadsJson}
+
+# Insights semanales candidatos — YA CALCULADOS (▲ ritmo≥110%, ▼ ritmo≤85%, ordenados por magnitud)
+${insightsJson}
+
+# Datos crudos adicionales (campañas, equipo, medios pagos) — para cruzar contexto, nunca para inventar ritmo
 ${dataBlock}
-
-${insightsText}
+${comentariosBlock}
+${historicosBlock}
 
 # Tu tarea
 Devolvé ÚNICAMENTE un objeto JSON válido (sin texto antes ni después, sin \`\`\`), con esta
 forma EXACTA:
 
 {
-  "resumenEjecutivo": "2-3 oraciones, tono directo y ejecutivo, con el estado general del período",
+  "resumenEjecutivo": "2-3 oraciones, tono directo y ejecutivo, con el estado general de la semana. Si hay comentarios de PO relevantes, incorporalos.",
   "cumplimiento": {
-    "pctObjetivosCumplidos": <number 0-100, cantidad de productos con ritmo>=100% sobre el total con objetivo definido en este período>,
-    "headline": "una frase corta sobre la evolución de cumplimiento vs. lo esperado a esta altura"
+    "headline": "una frase corta sobre cómo viene el cumplimiento esta semana vs. lo esperado"
   },
-  "squads": [
-    {
-      "nombre": "Adquisición y Crosselling" | "Habitualidad" | "Bezza Hub" | "Empresas",
-      "po": "nombre del PO si está en la pestaña Equipo, si no 'Sin asignar'",
-      "estado": "en línea" | "vigilar" | "atrasado",
-      "ritmoPromedioPct": <number, promedio del ritmo de sus productos con datos, 0 si no hay>,
-      "headline": "una frase corta y concreta sobre cómo viene el squad en este período",
-      "productos": [
-        { "nombre": "...", "kpi": "...", "ritmoPct": <number>, "estado": "en línea"|"vigilar"|"atrasado"|"sin datos" }
-      ]
-    }
-  ],
+  "squadHeadlines": {
+    "<nombre de squad exactamente como aparece arriba>": "1-2 oraciones concretas sobre cómo viene ese squad esta semana. Si hay comentario de su PO, integralo. Si el squad no tiene datos cargados esta semana, decilo así de directo."
+  },
   "campanas": [
     {
       "nombre": "...",
       "squad": "...",
       "canal": "Azure DevOps" | "Google Ads" | "Meta Ads" | "Otro",
       "estado": "...",
-      "presupuesto": "string formateado con $ o '—' si no aplica",
+      "presupuesto": "string formateado con $ o '—'",
       "gastoMTD": "string formateado con $ o '—'",
       "cpa": "string formateado con $ o '—'",
-      "nota": "1 oración: qué está haciendo esta campaña y cómo se relaciona con el ritmo del squad"
+      "nota": "1 oración: qué está haciendo esta campaña y cómo se relaciona con el ritmo semanal del squad"
     }
   ],
   "insights": [
     {
       "tipo": "positive" | "negative",
       "titulo": "título corto y contundente (5-8 palabras)",
-      "metrica": "el número destacado, ej. '+34%' o '-19,6% CPA' o '112% de ritmo'",
+      "metrica": "el número destacado, tomado de los insights semanales candidatos o de los datos crudos, ej. '+34%' o '112% de ritmo'",
       "cuerpo": "2-3 oraciones explicando el insight, con el dato que lo respalda y por qué importa para Dirección",
       "squad": "squad al que aplica, o 'General' si es transversal"
     }
   ],
-  "recomendaciones": ["0 a 3 recomendaciones accionables y breves, solo si se desprenden claramente de los datos"]
+  "recomendaciones": ["0 a 3 recomendaciones accionables y breves, solo si se desprenden claramente de los datos o los comentarios de PO"]
 }
 
 Reglas estrictas:
-1. NUNCA inventes cifras. Si algo no está en los datos, omitilo o decí explícitamente que no hay
-   dato disponible para ese período dentro del campo correspondiente — nunca lo completes con un
-   número estimado.
-2. "campanas": máximo 5, priorizando las de mayor presupuesto/gasto o las más relevantes para el
-   ritmo del período. Si no hay datos de campañas disponibles, devolvé un array vacío.
-3. "insights": entre 2 y 3, mezclando lo positivo y lo negativo cuando los datos lo permitan (no
-   fuerces negativos si todo viene bien, ni fuerces positivos si todo viene mal) — priorizá
-   uplifts, sobrecumplimientos, bajas de CPA, ganancias de eficiencia, o atrasos y sobrecostos
-   reales y significativos, no variaciones menores dentro de rango esperado.
-4. "squads": incluí los 4 squads siempre que tengan al menos un producto con objetivo definido
-   en Plan Anual, aunque no tengan datos cargados en este período (en ese caso, "estado":
-   "atrasado" solo si corresponde por ritmo real — si no hay carga, usá "sin datos" a nivel
-   producto y contalo así en el headline del squad).
-5. Todos los números en los campos "ritmoPct" / "pctObjetivosCumplidos" son valores numéricos
-   (no strings, sin el símbolo %).
-6. Español neutro rioplatense, directo, sin tecnicismos innecesarios — el mismo tono del
-   Asistente de Growth, pero en formato ejecutivo (frases más cortas, cero relleno).`;
+1. NUNCA inventes cifras nuevas. Los únicos números que podés citar son los que ya están en
+   "squadHeadlines" (referite a ellos en texto, no hace falta repetir el número exacto si ya
+   se muestra en la tarjeta del squad), en los insights semanales candidatos, o valores
+   explícitos de gasto/CPA/presupuesto que estén tal cual en los datos crudos.
+2. "campanas": esto es OPCIONAL — devolvé un array VACÍO si no hay ninguna campaña o gasto en
+   medios pagos que realmente valga la pena destacar esta semana (por ejemplo, si Google Ads o
+   Meta Ads no tuvieron gasto relevante, o si no aportan nada al ritmo de ningún squad). No
+   fuerces a incluir medios pagos "porque hay que llenar la sección" — Dirección prefiere no
+   ver una sección vacía de relleno. Si incluís algo, máximo 4, priorizando lo más relevante.
+3. "insights": entre 2 y 3, priorizando primero los insights semanales candidatos que ya están
+   calculados (elegí los de mayor magnitud, mezclando positivo y negativo si los hay de ambos
+   tipos). Podés sumar como insight algo de los datos crudos (ej. una baja de CPA visible en la
+   comparación de campañas, o un sobrecumplimiento evidente en Campañas/Azure) solo si el dato
+   que lo respalda está explícito en el contexto — nunca una estimación.
+4. "squadHeadlines": incluí una entrada para cada uno de los squads que aparecen en la lista de
+   arriba, ni uno más ni uno menos.
+5. Español neutro rioplatense, directo, sin tecnicismos innecesarios — tono ejecutivo, frases
+   cortas, cero relleno.`;
 }
 
 module.exports = async function handler(req, res) {
@@ -226,53 +283,72 @@ module.exports = async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    let monthTab = typeof body.monthTab === 'string' && MONTH_TABS.includes(body.monthTab)
-      ? body.monthTab
-      : currentMonthTab();
+    const comentariosPO = (body.comentariosPO && typeof body.comentariosPO === 'object') ? body.comentariosPO : {};
 
-    const period = buildPeriod(monthTab);
+    const [weekly, base, historicos] = await Promise.all([
+      getWeeklyContext(),
+      getBaseContext(),
+      getRecentPOComments(12)
+    ]);
 
-    // Si piden un mes que no es el mes en curso, lo pedimos como pestaña extra
-    // (getLiveContext ya trae Plan Anual + mes en curso siempre como base).
-    const liveContext = await getLiveContext(monthTab === currentMonthTab() ? [] : [monthTab]);
-
-    let effectiveContext = liveContext;
-    if (monthTab !== currentMonthTab()) {
-      const extra = liveContext.extraMonths && liveContext.extraMonths[monthTab];
-      if (extra && extra.csv) {
-        effectiveContext = { ...liveContext, currentMonthTab: monthTab, monthCsv: extra.csv };
-      } else {
-        res.status(200).json({
-          error: `No se pudo leer la pestaña "${monthTab}" (${(extra && extra.error) || 'sin detalle'}). Puede que ese mes no tenga datos cargados.`,
-          dataAsOf: liveContext.fetchedAt
-        });
-        return;
-      }
+    if (!weekly.dataset) {
+      res.status(200).json({
+        error: `No se pudo leer el Sheet en vivo para armar el informe semanal (${weekly.error || 'sin detalle'}).`,
+        dataAsOf: weekly.fetchedAt
+      });
+      return;
     }
 
-    const dataBlock = describeLiveContext(effectiveContext);
-    const insightsResult = await getGrowthInsights();
-    const insightsText = insightsResult.text || '';
+    const periodLabel = weekly.label;
+    const squadsSkeleton = buildSquadsSkeleton(weekly.dataset, base.equipoCsv);
+    const { items: weeklyInsightItems } = computeWeeklyInsightsList(weekly.dataset, null);
+    const dataBlock = describeLiveContext(base);
 
-    const systemPrompt = buildSystemPrompt(period, dataBlock, insightsText);
-    const userMessage = `Generá el informe semanal de Growth para Dirección correspondiente al período: ${period.label}.`;
+    // Guardar los comentarios de los PO en el Sheet en paralelo con la llamada a Claude —
+    // si falla, no bloquea el informe, solo se informa al front-end.
+    const systemPrompt = buildSystemPrompt(periodLabel, squadsSkeleton, weeklyInsightItems, dataBlock, comentariosPO, historicos);
+    const [saveResult, callResult] = await Promise.all([
+      saveWeeklyComments(periodLabel, comentariosPO),
+      callClaudeForJson(systemPrompt, `Generá el informe semanal de Growth para Dirección correspondiente a los últimos 7 días: ${periodLabel}.`)
+    ]);
 
-    const { parsed, debug } = await callClaudeForJson(systemPrompt, userMessage);
-
+    const { parsed, debug } = callResult;
     if (!parsed) {
       console.error('growth-report: no se pudo generar JSON válido.', debug);
       res.status(200).json({
         error: 'No se pudo generar el informe en este momento — probá de nuevo en un rato.',
         debug,
-        dataAsOf: liveContext.fetchedAt
+        dataAsOf: weekly.fetchedAt
       });
       return;
     }
 
+    // Merge: los números (ya resueltos en código) + el texto que devolvió Claude por squad.
+    const squadHeadlines = parsed.squadHeadlines || {};
+    const squads = squadsSkeleton.map((sq) => ({
+      ...sq,
+      headline: squadHeadlines[sq.nombre] || ''
+    }));
+
+    const report = {
+      resumenEjecutivo: parsed.resumenEjecutivo || '',
+      cumplimiento: {
+        pctObjetivosCumplidos: cumplimientoPct(squadsSkeleton),
+        headline: (parsed.cumplimiento && parsed.cumplimiento.headline) || ''
+      },
+      squads,
+      campanas: Array.isArray(parsed.campanas) ? parsed.campanas : [],
+      insights: Array.isArray(parsed.insights) ? parsed.insights : [],
+      recomendaciones: Array.isArray(parsed.recomendaciones) ? parsed.recomendaciones : []
+    };
+
     res.status(200).json({
-      report: parsed,
-      period,
-      dataAsOf: liveContext.fetchedAt
+      report,
+      period: { label: periodLabel, days: weekly.days.map((d) => d.toISOString().slice(0, 10)), generatedAt: new Date().toISOString() },
+      dataAsOf: weekly.fetchedAt,
+      commentsSaved: saveResult.saved,
+      commentsSavedCount: saveResult.count,
+      commentsError: saveResult.error || null
     });
   } catch (err) {
     console.error('growth-report handler error', err);
