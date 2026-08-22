@@ -1,0 +1,165 @@
+/* ============================================================
+   Informe semanal de Growth — Bancor + Bezza
+   Overlay a pantalla completa, generado a partir de /api/growth-report.
+   Reutiliza las variables de marca definidas en :root (index.html).
+   ============================================================ */
+
+#report-launch-btn{
+  display:flex; align-items:center; gap:8px;
+  font-family: var(--font-body); font-weight:600; font-size:12.5px;
+  color:#fff; background: linear-gradient(120deg, var(--teal-600), var(--teal-500));
+  border:none; border-radius:10px; padding:9px 16px 9px 13px; cursor:pointer;
+  box-shadow: var(--shadow-sm); transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
+}
+#report-launch-btn:hover{ transform: translateY(-1px); box-shadow: var(--shadow-md); filter:brightness(1.04); }
+#report-launch-btn:active{ transform: translateY(0); }
+#report-launch-btn svg{ width:16px; height:16px; flex-shrink:0; }
+
+/* ---------- overlay ---------- */
+#report-overlay{
+  position:fixed; inset:0; z-index:200; display:none;
+  background: rgba(7,33,29,0.55); backdrop-filter: blur(3px);
+  padding: 22px; overflow-y:auto;
+}
+#report-overlay.open{ display:block; animation: rpFadeIn .25s ease; }
+@keyframes rpFadeIn{ from{opacity:0;} to{opacity:1;} }
+
+#report-sheet{
+  position:relative; max-width: 1040px; margin: 0 auto;
+  background:
+    radial-gradient(ellipse 80% 50% at 8% 0%, rgba(11,128,120,0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 45% at 100% 0%, rgba(203,145,255,0.10) 0%, transparent 60%),
+    var(--bg);
+  border-radius: 20px; box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: rpSheetIn .35s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes rpSheetIn{ from{ opacity:0; transform: translateY(18px) scale(.98); } to{ opacity:1; transform:none; } }
+
+#report-toolbar{
+  position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:space-between;
+  gap:12px; padding: 14px 22px; background: rgba(246,250,249,0.88); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+#report-toolbar .rt-left{ display:flex; align-items:center; gap:10px; font-family: var(--font-mono); font-size:11px; color: var(--ink-500); text-transform:uppercase; letter-spacing:1px; }
+#report-toolbar .rt-actions{ display:flex; gap:8px; }
+.rt-btn{
+  display:flex; align-items:center; gap:6px; font-family: var(--font-body); font-weight:600; font-size:12px;
+  border-radius:8px; padding:7px 12px; cursor:pointer; border:1px solid var(--border);
+  background: var(--surface); color: var(--ink-700); transition: all .15s ease;
+}
+.rt-btn:hover{ border-color: var(--border-strong); background: var(--surface-2); }
+.rt-btn.rt-close{ color: var(--magenta-ink); }
+.rt-btn svg{ width:14px; height:14px; }
+
+#report-body{ padding: 0 30px 40px; }
+@media (max-width:640px){ #report-body{ padding: 0 16px 28px; } #report-toolbar{ padding:12px 16px; } }
+
+/* ---------- header / period badge (siempre visible) ---------- */
+.rp-head{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; padding: 26px 0 18px; }
+.rp-brands{ display:flex; align-items:center; gap:12px; }
+.rp-brands img{ height:46px; width:auto; }
+.rp-bezza-chip{
+  font-family: var(--font-display); font-weight:700; font-size:13px; color: var(--lavender-ink);
+  background: rgba(203,145,255,0.14); border:1px solid rgba(203,145,255,0.35);
+  padding: 6px 12px; border-radius: 999px; letter-spacing:.3px;
+}
+.rp-plus{ color: var(--ink-300); font-size:18px; font-weight:300; }
+.rp-period{
+  font-family: var(--font-mono); font-size:12px; color: var(--teal-700); background: var(--surface);
+  border:1px solid var(--border-strong); border-radius:10px; padding:9px 14px; box-shadow: var(--shadow-sm);
+  display:flex; align-items:center; gap:8px; white-space:nowrap;
+}
+.rp-period .dot{ width:7px; height:7px; border-radius:50%; background: var(--lime-fill); box-shadow:0 0 6px var(--lime-fill); }
+
+.rp-title{ font-family: var(--font-display); font-weight:700; font-size: 26px; color: var(--ink-900); line-height:1.25; margin: 6px 0 10px; }
+.rp-summary{ font-family: var(--font-body); font-size:14.5px; line-height:1.65; color: var(--ink-700); max-width: 780px; }
+
+/* ---------- hero cumplimiento ---------- */
+.rp-hero{
+  display:flex; align-items:center; gap:28px; margin: 26px 0 8px; padding: 24px 26px; border-radius:18px;
+  background: var(--surface); border:1px solid var(--border); box-shadow: var(--shadow-sm);
+  flex-wrap:wrap;
+}
+.rp-hero-num{ font-family: var(--font-display); font-weight:700; font-size: 56px; color: var(--teal-700); line-height:1; min-width:130px; }
+.rp-hero-num sup{ font-size:24px; }
+.rp-hero-text{ flex:1; min-width:220px; }
+.rp-hero-label{ font-family: var(--font-mono); font-size:11px; text-transform:uppercase; letter-spacing:1px; color: var(--ink-500); margin-bottom:6px; }
+.rp-hero-headline{ font-family: var(--font-body); font-weight:600; font-size:15px; color: var(--ink-900); }
+
+/* ---------- secciones genéricas ---------- */
+.rp-section{ margin-top: 40px; opacity:0; transform: translateY(16px); transition: opacity .5s ease, transform .5s ease; }
+.rp-section.rp-visible{ opacity:1; transform:none; }
+.rp-section h2{ font-family: var(--font-display); font-weight:700; font-size:19px; color: var(--ink-900); display:flex; align-items:center; gap:9px; margin-bottom:4px; }
+.rp-section h2 .rp-dot{ width:9px; height:9px; border-radius:50%; }
+.rp-section .rp-sub{ font-family: var(--font-body); font-size:12.5px; color: var(--ink-500); margin-bottom:16px; }
+
+/* ---------- squads ---------- */
+.rp-squad-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr)); gap:14px; }
+.rp-squad-card{ background: var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow: var(--shadow-sm); }
+.rp-squad-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.rp-squad-name{ font-family: var(--font-display); font-weight:600; font-size:14.5px; color: var(--ink-900); }
+.rp-squad-po{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); margin-bottom:10px; }
+.rp-badge{ font-family: var(--font-mono); font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:3px 8px; border-radius:999px; }
+.rp-badge.ok{ background: rgba(173,235,0,0.18); color: var(--lime-ink); }
+.rp-badge.warn{ background: rgba(255,223,0,0.22); color: var(--gold-ink); }
+.rp-badge.bad{ background: rgba(238,99,44,0.16); color: var(--orange-ink); }
+.rp-badge.nodata{ background: var(--surface-2); color: var(--ink-500); }
+.rp-squad-headline{ font-size:12.5px; color: var(--ink-700); line-height:1.5; margin-bottom:12px; }
+.rp-bar-track{ height:6px; border-radius:4px; background: var(--surface-2); overflow:hidden; margin-bottom:3px; }
+.rp-bar-fill{ height:100%; border-radius:4px; width:0%; transition: width 1s cubic-bezier(.2,.8,.2,1); }
+.rp-prod-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11.5px; color: var(--ink-700); margin-top:10px; }
+.rp-prod-name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rp-prod-pct{ font-family: var(--font-mono); font-weight:600; white-space:nowrap; }
+
+/* ---------- campañas ---------- */
+.rp-camp-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap:14px; }
+.rp-camp-card{ background: var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px; box-shadow: var(--shadow-sm); }
+.rp-camp-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:8px; }
+.rp-camp-name{ font-family: var(--font-body); font-weight:600; font-size:13px; color: var(--ink-900); }
+.rp-camp-meta{ font-family: var(--font-mono); font-size:10px; color: var(--ink-500); margin-bottom:10px; }
+.rp-camp-stats{ display:flex; gap:14px; margin-bottom:10px; flex-wrap:wrap; }
+.rp-camp-stat b{ display:block; font-family: var(--font-display); font-size:15px; color: var(--teal-700); }
+.rp-camp-stat span{ font-size:10px; color: var(--ink-500); text-transform:uppercase; letter-spacing:.4px; }
+.rp-camp-note{ font-size:11.5px; color: var(--ink-700); line-height:1.5; }
+
+/* ---------- insights (McKinsey-style callouts) ---------- */
+.rp-insight-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap:16px; }
+.rp-insight{
+  position:relative; border-radius:18px; padding:22px; overflow:hidden;
+  border:1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm);
+}
+.rp-insight.positive{ border-color: rgba(173,235,0,0.4); background: linear-gradient(160deg, rgba(173,235,0,0.10), var(--surface) 55%); }
+.rp-insight.negative{ border-color: rgba(238,99,44,0.35); background: linear-gradient(160deg, rgba(238,99,44,0.09), var(--surface) 55%); }
+.rp-insight-icon{ font-size:20px; margin-bottom:8px; display:block; }
+.rp-insight-metric{ font-family: var(--font-display); font-weight:700; font-size: 34px; line-height:1; margin-bottom:8px; }
+.rp-insight.positive .rp-insight-metric{ color: var(--lime-ink); }
+.rp-insight.negative .rp-insight-metric{ color: var(--orange-ink); }
+.rp-insight-title{ font-family: var(--font-body); font-weight:700; font-size:14px; color: var(--ink-900); margin-bottom:6px; }
+.rp-insight-body{ font-size:12.5px; line-height:1.6; color: var(--ink-700); }
+.rp-insight-squad{ margin-top:12px; font-family: var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:.5px; color: var(--ink-500); }
+
+/* ---------- recomendaciones ---------- */
+.rp-reco-list{ display:flex; flex-direction:column; gap:8px; }
+.rp-reco-item{ display:flex; gap:10px; align-items:flex-start; font-size:13px; color: var(--ink-700); background: var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; }
+.rp-reco-item .num{ font-family: var(--font-display); font-weight:700; color: var(--teal-500); flex-shrink:0; }
+
+/* ---------- footer ---------- */
+.rp-footer{ margin-top: 44px; padding-top:18px; border-top:1px solid var(--border); font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+
+/* ---------- loading ---------- */
+#report-loading{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding: 90px 20px; }
+.rp-loader{ width:46px; height:46px; border-radius:50%; border:3px solid var(--border); border-top-color: var(--teal-500); animation: rpSpin .8s linear infinite; }
+@keyframes rpSpin{ to{ transform: rotate(360deg); } }
+#report-loading .rp-loading-text{ font-family: var(--font-mono); font-size:12px; color: var(--ink-500); }
+#report-error{ display:none; padding: 60px 20px; text-align:center; font-size:13.5px; color: var(--magenta-ink); }
+
+/* ---------- print ---------- */
+@media print{
+  body > *:not(#report-overlay){ display:none !important; }
+  #report-overlay{ position:static; background:none; backdrop-filter:none; padding:0; overflow:visible; display:block !important; }
+  #report-sheet{ box-shadow:none; border-radius:0; max-width:none; animation:none; }
+  #report-toolbar{ display:none !important; }
+  .rp-section{ opacity:1 !important; transform:none !important; }
+  #bg-canvas, #ga-root{ display:none !important; }
+}

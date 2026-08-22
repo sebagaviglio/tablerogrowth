@@ -10,6 +10,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assistant-widget.css">
 <script src="assistant-widget.js"></script>
+<link rel="stylesheet" href="report.css">
+<script src="report.js"></script>
 <style>
   :root{
     /* superficies */
@@ -466,6 +468,10 @@
     </div>
     <div class="header-right">
       <select id="month-select" class="month-select has-tip" data-tip="Elegí qué mes mirar. Al entrar siempre arranca en el mes calendario actual, tenga o no datos cargados todavía."></select>
+      <button id="report-launch-btn" title="Generar el informe semanal para Dirección (Bancor + Bezza)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6M9 9h1"/></svg>
+        Generar informe
+      </button>
       <div class="clock"><span class="dot"></span><span id="clock-text">--:--:--</span></div>
       <div class="icon-btn" id="settings-btn" title="Conectar Google Sheet">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -656,6 +662,10 @@ const DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
 let SELECTED_MONTH_IDX = new Date().getMonth();
 const CURRENT_MONTH_IDX = new Date().getMonth(); // mes real de hoy, no cambia con el selector
 
+// Expone el mes que se está mirando en el tablero a report.js, para que
+// "Generar informe" arme el informe sobre ese mismo período por default.
+window.GA_SELECTED_MONTH_TAB = MONTHS[SELECTED_MONTH_IDX];
+
 function populateMonthSelect(){
   const sel = document.getElementById('month-select');
   if(!sel || sel.options.length) return; // ya poblado
@@ -668,6 +678,7 @@ function populateMonthSelect(){
   sel.value = SELECTED_MONTH_IDX;
   sel.onchange = ()=>{
     SELECTED_MONTH_IDX = parseInt(sel.value, 10);
+    window.GA_SELECTED_MONTH_TAB = MONTHS[SELECTED_MONTH_IDX];
     renderAll();
     fetchPaidMedia(SELECTED_MONTH_IDX);
     fetchMetaMedia(SELECTED_MONTH_IDX);
