@@ -226,6 +226,9 @@ forma EXACTA:
   "squadHeadlines": {
     "<nombre de squad exactamente como aparece arriba>": "1-2 oraciones concretas sobre cómo viene ese squad esta semana. Si hay comentario de su PO, integralo. Si el squad no tiene datos cargados esta semana, decilo así de directo."
   },
+  "comentariosPOInterpretados": {
+    "<nombre de squad, SOLO para los squads que tengan comentario de PO en la sección de arriba>": "Reescribí el comentario crudo del PO en 1 oración clara y ejecutiva (máx. ~25 palabras): mejorá la redacción, sacá relleno, y destacá el dato o el punto más accionable si el comentario trae varios. No agregues información que el PO no haya dicho, no inventes números nuevos — es una edición de estilo, no contenido nuevo. Si el comentario ya es corto y claro, podés dejarlo casi igual."
+  },
   "campanas": [
     {
       "nombre": "...",
@@ -267,7 +270,11 @@ Reglas estrictas:
    que lo respalda está explícito en el contexto — nunca una estimación.
 4. "squadHeadlines": incluí una entrada para cada uno de los squads que aparecen en la lista de
    arriba, ni uno más ni uno menos.
-5. Español neutro rioplatense, directo, sin tecnicismos innecesarios — tono ejecutivo, frases
+5. "comentariosPOInterpretados": es una reescritura editorial del comentario del PO, NO una
+   síntesis del ritmo del squad (eso ya va en "squadHeadlines") — tiene que seguir sonando como
+   la voz del PO, solo que más prolija y directa. Si el PO no cargó comentario para un squad, no
+   incluyas esa clave.
+6. Español neutro rioplatense, directo, sin tecnicismos innecesarios — tono ejecutivo, frases
    cortas, cero relleno.`;
 }
 
@@ -325,9 +332,13 @@ module.exports = async function handler(req, res) {
 
     // Merge: los números (ya resueltos en código) + el texto que devolvió Claude por squad.
     const squadHeadlines = parsed.squadHeadlines || {};
+    const comentariosInterpretados = parsed.comentariosPOInterpretados || {};
     const squads = squadsSkeleton.map((sq) => ({
       ...sq,
-      headline: squadHeadlines[sq.nombre] || ''
+      headline: squadHeadlines[sq.nombre] || '',
+      comentarioPO: comentariosPO[sq.nombre]
+        ? (comentariosInterpretados[sq.nombre] || comentariosPO[sq.nombre]) // si Claude no lo devolvió, se usa el crudo como respaldo
+        : null
     }));
 
     const report = {
