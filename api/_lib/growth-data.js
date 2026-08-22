@@ -35,6 +35,28 @@ function currentMonthTab() {
   return MONTH_TABS[new Date().getMonth()];
 }
 
+/** Los últimos `n` días calendario, terminando hoy (incluido), en orden ascendente. */
+function lastNDates(n, refDate) {
+  const ref = refDate ? new Date(refDate) : new Date();
+  const dates = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - i);
+    dates.push(d);
+  }
+  return dates;
+}
+function monthTabForDate(d) { return MONTH_TABS[d.getMonth()]; }
+function fmtDateEs(d) { return `${d.getDate()} de ${MONTH_LABELS_ES[monthTabForDate(d)]}`; }
+/** Etiqueta legible del período semanal, ej. "16 al 22 de agosto de 2026". */
+function weekLabel(days) {
+  const first = days[0], last = days[days.length - 1];
+  const year = last.getFullYear();
+  if (monthTabForDate(first) === monthTabForDate(last)) {
+    return `${first.getDate()} al ${last.getDate()} de ${MONTH_LABELS_ES[monthTabForDate(last)]} de ${year}`;
+  }
+  return `${fmtDateEs(first)} al ${fmtDateEs(last)} de ${year}`;
+}
+
 /* ------------------------------------------------------------ *
  * Fetch de pestañas del Sheet (vía el Apps Script existente)   *
  * ------------------------------------------------------------ */
@@ -191,7 +213,8 @@ function parseMonthTabRows(rows) {
         if (h) prodCols.push([ci, h]);
       }
       let rr = r + 2;
-      const daily = {}; prodCols.forEach(([ci, name]) => { daily[name] = []; });
+      const daily = {}; const dailyByDay = {};
+      prodCols.forEach(([ci, name]) => { daily[name] = []; dailyByDay[name] = {}; });
       while (rr < maxR) {
         const row = rows[rr] || [];
         const c0b = normCell(row[0]);
@@ -200,7 +223,9 @@ function parseMonthTabRows(rows) {
         if (!isNaN(dia) && row[0] !== '') {
           prodCols.forEach(([ci, name]) => {
             const v = parseFloat((row[ci] || '').replace(/[^0-9.-]/g, ''));
-            daily[name].push(isNaN(v) ? null : v);
+            const val = isNaN(v) ? null : v;
+            daily[name].push(val);
+            dailyByDay[name][dia] = val; // clave = número de día del mes, no posición — evita corrimientos si hay huecos
           });
           rr++;
         } else if (normCell(row[1]) === 'TOTAL ACUM') {
@@ -226,7 +251,7 @@ function parseMonthTabRows(rows) {
         daily[name].forEach((v, i) => { if (v !== null) last = i + 1; });
         asOfDay[name] = last;
       });
-      result[squad] = { products: prodCols.map((p) => p[1]), acum, asOfDay };
+      result[squad] = { products: prodCols.map((p) => p[1]), acum, asOfDay, dailyByDay };
       r = rr; continue;
     }
     r++;
@@ -349,6 +374,146 @@ ${bySquadLines}`;
 }
 
 /* ------------------------------------------------------------ *
+ * RITMO SEMANAL — últimos 7 días calendario (para el informe    *
+ * semanal a Dirección). Distinto del "ritmo" anual/mensual que  *
+ * usa el asistente de chat: acá el objetivo prorrateado y el    *
+ * acumulado real se calculan SOLO sobre los últimos 7 días,     *
+ * sumando ambos meses si la semana cruza un límite de mes.      *
+ * ------------------------------------------------------------ */
+
+/** Trae Plan Anual + las pestañas mensuales que toquen los últimos 7 días (1 o 2), y arma el dataset semanal por squad/producto. */
+async function getWeeklyContext() {
+  const days = lastNDates(7);
+  const label = weekLabel(days);
+  const neededTabs = Array.from(new Set(days.map(monthTabForDate)));
+
+  let planCsv, planError;
+  try {
+    planCsv = await fetchTab('Plan Anual');
+  } catch (err) {
+    planError = String(err.message || err);
+  }
+  if (planError) {
+    return { dataset: null, days, label, neededTabs, error: planError, fetchedAt: new Date().toISOString() };
+  }
+
+  const monthlyParsed = {};
+  const monthErrors = {};
+  await Promise.all(neededTabs.map(async (tab) => {
+    try {
+      const csv = await fetchTab(tab);
+      monthlyParsed[tab] = parseMonthTabRows(parseCsvRows(csv));
+    } catch (err) {
+      monthErrors[tab] = String(err.message || err);
+    }
+  }));
+
+  const planBySquad = parsePlanAnualRows(parseCsvRows(planCsv));
+  const dataset = {};
+  Object.keys(planBySquad).forEach((squad) => {
+    dataset[squad] = { products: {} };
+    Object.keys(planBySquad[squad]).forEach((prod) => {
+      const p = planBySquad[squad][prod];
+      let weeklyReal = 0, weeklyTarget = 0, anyData = false, anyTarget = false;
+      days.forEach((d) => {
+        const tab = monthTabForDate(d);
+        const mi = MONTH_TABS.indexOf(tab);
+        const target = p.plan[mi];
+        const dim = DAYS_IN_MONTH[mi];
+        if (target !== null && target !== undefined) {
+          weeklyTarget += target / dim;
+          anyTarget = true;
+        }
+        const monthData = monthlyParsed[tab] && monthlyParsed[tab][squad];
+        const val = monthData && monthData.dailyByDay[prod] ? monthData.dailyByDay[prod][d.getDate()] : undefined;
+        if (val !== undefined && val !== null) {
+          weeklyReal += val;
+          anyData = true;
+        }
+      });
+      dataset[squad].products[prod] = {
+        kpi: p.kpi,
+        weeklyReal,
+        weeklyTarget,
+        ritmoSemanal: (anyData && anyTarget && weeklyTarget > 0) ? weeklyReal / weeklyTarget : null
+      };
+    });
+  });
+
+  return { dataset, days, label, neededTabs, monthErrors, fetchedAt: new Date().toISOString() };
+}
+
+/** Mismos umbrales que computeInsightsList (▲ ≥110%, ▼ ≤85%) pero sobre ritmo SEMANAL. */
+function computeWeeklyInsightsList(dataset, squadFilter) {
+  const items = [];
+  const noData = [];
+  Object.keys(dataset).forEach((squad) => {
+    if (squadFilter && squad !== squadFilter) return;
+    Object.keys(dataset[squad].products).forEach((prod) => {
+      const d = dataset[squad].products[prod];
+      if (d.ritmoSemanal === null) {
+        if (d.weeklyTarget > 0) noData.push({ seg: squad, prod, kpi: d.kpi });
+        return;
+      }
+      if (d.ritmoSemanal >= 1.10) {
+        items.push({ type: 'positive', seg: squad, prod, kpi: d.kpi, ritmo: d.ritmoSemanal, real: d.weeklyReal, target: d.weeklyTarget, text: `${prod} (${squad}) cerró los últimos 7 días ${pctFmt(d.ritmoSemanal - 1)} por encima del objetivo semanal (${d.kpi}: ${Math.round(d.weeklyReal)} reales vs. ${Math.round(d.weeklyTarget)} esperados).`, mag: d.ritmoSemanal - 1 });
+      } else if (d.ritmoSemanal <= 0.85) {
+        items.push({ type: 'negative', seg: squad, prod, kpi: d.kpi, ritmo: d.ritmoSemanal, real: d.weeklyReal, target: d.weeklyTarget, text: `${prod} (${squad}) cerró los últimos 7 días ${pctFmt(1 - d.ritmoSemanal)} por debajo del objetivo semanal (${d.kpi}: ${Math.round(d.weeklyReal)} reales vs. ${Math.round(d.weeklyTarget)} esperados).`, mag: 1 - d.ritmoSemanal });
+      }
+    });
+  });
+  items.sort((a, b) => b.mag - a.mag);
+  return { items, noData };
+}
+
+/* ------------------------------------------------------------ *
+ * Comentarios/insights de los PO — quedan guardados en el Sheet *
+ * (pestaña "Comentarios PO", vía doPost en el Apps Script) para *
+ * que sean parte de la base de conocimiento a futuro.           *
+ * ------------------------------------------------------------ */
+
+/** Persiste los comentarios semanales de los PO en el Sheet. Requiere el doPost agregado al Apps Script (ver LEEME). Si no está disponible, falla en silencio y lo informa — nunca bloquea la generación del informe. */
+async function saveWeeklyComments(label, comments) {
+  const entries = Object.entries(comments || {}).filter(([, v]) => typeof v === 'string' && v.trim());
+  if (!entries.length) return { saved: true, count: 0 };
+  if (!SHEET_SCRIPT_URL) return { saved: false, count: 0, error: 'GROWTH_SHEET_SCRIPT_URL no configurada' };
+
+  try {
+    const r = await fetch(SHEET_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'saveWeeklyComments',
+        weekLabel: label,
+        comments: entries.map(([squad, texto]) => ({ squad, texto: texto.trim() })),
+        timestamp: new Date().toISOString()
+      })
+    });
+    const text = await r.text();
+    if (!r.ok || text.trim().toUpperCase().startsWith('ERROR')) {
+      return { saved: false, count: 0, error: text.trim() || `HTTP ${r.status}` };
+    }
+    return { saved: true, count: entries.length };
+  } catch (err) {
+    return { saved: false, count: 0, error: String(err.message || err) };
+  }
+}
+
+/** Comentarios de PO de semanas anteriores (si la pestaña "Comentarios PO" existe — se lee con el mismo doGet genérico, no requiere código nuevo del lado de lectura). Se usa como contexto extra para el informe; si la pestaña no existe todavía, se ignora sin error. */
+async function getRecentPOComments(maxRows) {
+  try {
+    const csv = await fetchTab('Comentarios PO');
+    const rows = parseCsvRows(csv).filter((r) => r && r.some((c) => normCell(c)));
+    if (rows.length <= 1) return [];
+    return rows.slice(1).slice(-1 * (maxRows || 12)).map((r) => ({
+      fecha: normCell(r[0]), semana: normCell(r[1]), squad: normCell(r[2]), texto: normCell(r[3])
+    })).filter((c) => c.texto);
+  } catch (err) {
+    return []; // la pestaña puede no existir todavía — no es un error real
+  }
+}
+
+/* ------------------------------------------------------------ *
  * Bloque de datos crudos con notas de lectura — mismo texto     *
  * que arma buildSystemPrompt() en growth-assistant.js, para que *
  * el informe interprete las pestañas exactamente igual.        *
@@ -400,6 +565,9 @@ module.exports = {
   MONTH_LABELS_ES,
   DAYS_IN_MONTH,
   currentMonthTab,
+  lastNDates,
+  monthTabForDate,
+  weekLabel,
   fetchTab,
   getBaseContext,
   getExtraMonthTab,
@@ -410,6 +578,10 @@ module.exports = {
   buildWorkingDataset,
   computeInsightsList,
   getGrowthInsights,
+  getWeeklyContext,
+  computeWeeklyInsightsList,
+  saveWeeklyComments,
+  getRecentPOComments,
   describeLiveContext,
   pctFmt
 };
