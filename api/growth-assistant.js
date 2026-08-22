@@ -18,6 +18,12 @@
    La API key NUNCA se expone al browser: esta función corre server-side.
    ============================================================ */
 
+// Reutilizamos las mismas libs que ya usan google-ads-proxy.js y
+// meta-ads-proxy.js — llaman directo a las APIs en vivo, así que
+// sirven para historial que puede no estar volcado al Sheet todavía.
+const { fetchCampaigns: fetchGoogleAdsHistory } = require('./_lib/google-ads-core');
+const { fetchCampaigns: fetchMetaAdsHistory } = require('./_lib/meta-ads-core');
+
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const SHEET_SCRIPT_URL = process.env.GROWTH_SHEET_SCRIPT_URL;
 const MODEL = 'claude-sonnet-5';
@@ -124,8 +130,18 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const liveContext = await getLiveContext(detectMentionedMonths(message + ' ' + recentHistoryText(history)));
-    const systemPrompt = buildSystemPrompt(liveContext);
+    const combinedText = message + ' ' + recentHistoryText(history);
+    const mentionedMonths = detectMentionedMonths(combinedText);
+    const wantsInsights = /\b(growth insights?|dato destacado|oportunidad(es)?|alerta(s)?|resumen general|c[oó]mo viene(n)? (todos|los squads))\b/i.test(combinedText);
+    const wantsAdsHistory = mentionsAds(combinedText) && mentionedMonths.length > 0;
+
+    const [liveContext, insightsBlock, adsHistoryBlock] = await Promise.all([
+      getLiveContext(mentionedMonths),
+      wantsInsights ? getGrowthInsightsBlock() : Promise.resolve(null),
+      wantsAdsHistory ? getAdsHistoryBlock(mentionedMonths) : Promise.resolve(null)
+    ]);
+
+    const systemPrompt = buildSystemPrompt(liveContext, insightsBlock, adsHistoryBlock);
 
     const messages = (Array.isArray(history) ? history : [])
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
@@ -182,6 +198,86 @@ function detectMentionedMonths(text) {
     if (new RegExp('\\b' + alias + '\\b', 'i').test(lower)) found.add(MONTH_ALIASES[alias]);
   }
   return Array.from(found);
+}
+
+const MONTH_NUM = { Ene: 1, Feb: 2, Mar: 3, Abr: 4, May: 5, Jun: 6, Jul: 7, Ago: 8, Sep: 9, Oct: 10, Nov: 11, Dic: 12 };
+function monthTabToYYYYMM(tabName, year) {
+  const num = MONTH_NUM[tabName];
+  if (!num) return null;
+  return `${year || new Date().getFullYear()}-${String(num).padStart(2, '0')}`;
+}
+
+function mentionsAds(text) {
+  return /\b(google ads|meta ads|adwords|facebook ads|instagram ads|\bcpa\b|gasto en (medios|ads|publicidad)|campa[ñn]as? hist[oó]ric|medios pagos)/i.test(text || '');
+}
+
+// Caché de historial de Ads por plataforma+mes — evita pegarle a las APIs
+// externas en cada mensaje si preguntan por el mismo mes varias veces seguidas.
+const googleAdsHistoryCache = {};
+const metaAdsHistoryCache = {};
+
+async function getGoogleAdsHistory(tabName) {
+  const now = Date.now();
+  const cached = googleAdsHistoryCache[tabName];
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) return cached;
+  try {
+    const data = await fetchGoogleAdsHistory(process.env, monthTabToYYYYMM(tabName));
+    const entry = { data, error: null, fetchedAt: now };
+    googleAdsHistoryCache[tabName] = entry;
+    return entry;
+  } catch (err) {
+    const entry = { data: null, error: String(err.message || err), fetchedAt: now };
+    googleAdsHistoryCache[tabName] = entry;
+    return entry;
+  }
+}
+
+async function getMetaAdsHistory(tabName) {
+  const now = Date.now();
+  const cached = metaAdsHistoryCache[tabName];
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) return cached;
+  try {
+    const data = await fetchMetaAdsHistory(process.env, monthTabToYYYYMM(tabName));
+    const entry = { data, error: null, fetchedAt: now };
+    metaAdsHistoryCache[tabName] = entry;
+    return entry;
+  } catch (err) {
+    const entry = { data: null, error: String(err.message || err), fetchedAt: now };
+    metaAdsHistoryCache[tabName] = entry;
+    return entry;
+  }
+}
+
+function formatAdsCampaignList(campaigns) {
+  if (!Array.isArray(campaigns) || !campaigns.length) return '(sin campañas con gasto o conversiones en ese mes)';
+  return campaigns.slice(0, 15).map((c) => {
+    const parts = [`- ${c.name} [${c.status}]`];
+    if (c.accountName) parts.push(`cuenta ${c.accountName}`);
+    if (c.objective) parts.push(`objetivo ${c.objective}`);
+    parts.push(`gasto $${c.spend}`);
+    parts.push(`conversiones ${c.conversions}`);
+    parts.push(`CPA ${c.cpa !== null && c.cpa !== undefined ? '$' + c.cpa : '—'}`);
+    return parts.join(' · ');
+  }).join('\n');
+}
+
+/** Arma el bloque de historial de Ads (Google + Meta, API en vivo) para los meses detectados en el mensaje. */
+async function getAdsHistoryBlock(tabNames) {
+  const sections = await Promise.all(tabNames.map(async (tabName) => {
+    const [ga, ma] = await Promise.all([getGoogleAdsHistory(tabName), getMetaAdsHistory(tabName)]);
+    const gaText = ga.data
+      ? formatAdsCampaignList(ga.data.campaigns)
+      : `(no se pudo traer Google Ads de ${tabName}: ${ga.error || 'sin detalle'})`;
+    const maText = ma.data
+      ? formatAdsCampaignList(ma.data.campaigns)
+      : `(no se pudo traer Meta Ads de ${tabName}: ${ma.error || 'sin detalle'})`;
+    return `--- ${tabName}: Google Ads (histórico, API en vivo) ---\n${gaText}\n\n--- ${tabName}: Meta Ads (histórico, API en vivo) ---\n${maText}`;
+  }));
+
+  return `\n--- Historial de medios pagos pedido a demanda (directo de las APIs de Google Ads y Meta Ads, no del Sheet — sirve para meses o campañas que no estén volcados a la pestaña "Google Ads"/"Meta Ads" del Sheet) ---
+${sections.join('\n\n')}
+
+Esto es un listado de campañas crudo (no tiene la columna "Squad" que sí tiene la pestaña del Sheet, porque esa asignación es manual). Si necesitás saber a qué squad pertenece una de estas campañas y no es obvio por el nombre, decilo en vez de inventar la asignación.`;
 }
 
 async function fetchTab(tabName) {
@@ -268,6 +364,246 @@ async function getExtraMonthTab(tabName) {
   }
 }
 
+/* ============================================================
+ * GROWTH INSIGHTS / DATO DESTACADO
+ * Port 1:1 de la lógica de index.html (parseCSV, parsePlanAnual,
+ * parseMonthTab, buildWorkingDataset, computeInsights) para que el
+ * asistente diga EXACTAMENTE lo mismo que el tablero — nunca lo
+ * recalcula Claude leyendo CSV crudo, evita cualquier divergencia.
+ * ============================================================ */
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const SQUAD_NAME_VARIANTS = {
+  'ADQUISICIÓN Y CROSSELLING': 'Adquisición y Crosselling',
+  HABITUALIDAD: 'Habitualidad',
+  'BEZZA HUB': 'Bezza Hub',
+  EMPRESAS: 'Empresas'
+};
+
+function normCell(s) { return (s || '').toString().replace(/\s+/g, ' ').trim(); }
+
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (field.length || row.length) { row.push(field); rows.push(row); row = []; field = ''; }
+        if (c === '\r' && text[i + 1] === '\n') i++;
+      } else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function parsePlanAnualRows(rows) {
+  const plan = {};
+  let curSquad = null;
+  for (let r = 3; r < rows.length; r++) {
+    const row = rows[r]; if (!row) continue;
+    const squadCell = normCell(row[0]);
+    const prod = normCell(row[1]);
+    const kpi = normCell(row[2]);
+    if (squadCell) curSquad = squadCell;
+    if (prod && curSquad) {
+      const months = [];
+      for (let i = 0; i < 12; i++) {
+        const v = parseFloat((row[3 + i] || '').replace(/[^0-9.-]/g, ''));
+        months.push(isNaN(v) ? null : v);
+      }
+      plan[curSquad] = plan[curSquad] || {};
+      plan[curSquad][prod] = { kpi, plan: months };
+    }
+  }
+  return plan;
+}
+
+function parseMonthTabRows(rows) {
+  const result = {};
+  const maxR = rows.length;
+  let r = 0;
+  while (r < maxR) {
+    const c0 = rows[r] ? rows[r][0] : '';
+    if (c0 && c0.includes('PO:')) {
+      const namePart = c0.split('·')[0].trim().toUpperCase();
+      let squad = namePart;
+      for (const key in SQUAD_NAME_VARIANTS) { if (namePart.includes(key)) { squad = SQUAD_NAME_VARIANTS[key]; break; } }
+      const headerRow = rows[r + 1] || [];
+      const prodCols = [];
+      for (let ci = 2; ci < headerRow.length; ci++) {
+        const h = normCell(headerRow[ci]);
+        if (h && h.toUpperCase().startsWith('TOTAL')) break;
+        if (h) prodCols.push([ci, h]);
+      }
+      let rr = r + 2;
+      const daily = {}; prodCols.forEach(([ci, name]) => { daily[name] = []; });
+      while (rr < maxR) {
+        const row = rows[rr] || [];
+        const c0b = normCell(row[0]);
+        if (c0b.includes('PO:')) break;
+        const dia = parseFloat(row[0]);
+        if (!isNaN(dia) && row[0] !== '') {
+          prodCols.forEach(([ci, name]) => {
+            const v = parseFloat((row[ci] || '').replace(/[^0-9.-]/g, ''));
+            daily[name].push(isNaN(v) ? null : v);
+          });
+          rr++;
+        } else if (normCell(row[1]) === 'TOTAL ACUM') {
+          break;
+        } else { rr++; }
+      }
+      const acum = {};
+      while (rr < maxR) {
+        const row = rows[rr] || [];
+        if (normCell(row[1]) === 'TOTAL ACUM') {
+          prodCols.forEach(([ci, name]) => {
+            const v = parseFloat((row[ci] || '').replace(/[^0-9.-]/g, ''));
+            acum[name] = isNaN(v) ? null : v;
+          });
+          rr++; break;
+        }
+        if (normCell(row[0]).includes('PO:')) break;
+        rr++;
+      }
+      const asOfDay = {};
+      prodCols.forEach(([ci, name]) => {
+        let last = 0;
+        daily[name].forEach((v, i) => { if (v !== null) last = i + 1; });
+        asOfDay[name] = last;
+      });
+      result[squad] = { products: prodCols.map((p) => p[1]), acum, asOfDay };
+      r = rr; continue;
+    }
+    r++;
+  }
+  return result;
+}
+
+/** ritmo anual = acumulado real (meses con carga) / objetivo prorrateado (mismos meses) — igual que buildWorkingDataset() en index.html */
+function buildWorkingDataset(planBySquad, monthlyBySquadByMonth) {
+  const dataset = {};
+  Object.keys(planBySquad).forEach((squad) => {
+    dataset[squad] = { products: {} };
+    Object.keys(planBySquad[squad]).forEach((prod) => {
+      const p = planBySquad[squad][prod];
+      let yearReal = 0, yearProrated = 0;
+      MONTH_TABS.forEach((m, mi) => {
+        const monthData = monthlyBySquadByMonth[m] && monthlyBySquadByMonth[m][squad];
+        const acum = monthData ? monthData.acum[prod] : undefined;
+        const asOfDay = monthData ? (monthData.asOfDay[prod] || 0) : 0;
+        if (acum !== undefined && acum !== null && asOfDay > 0) {
+          const target = p.plan[mi];
+          if (target !== null && target !== undefined) {
+            yearReal += acum;
+            yearProrated += target * (asOfDay / DAYS_IN_MONTH[mi]);
+          }
+        }
+      });
+      dataset[squad].products[prod] = {
+        kpi: p.kpi,
+        ritmo: yearProrated > 0 ? yearReal / yearProrated : null
+      };
+    });
+  });
+  return dataset;
+}
+
+function pctFmt(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return (n * 100).toFixed(0) + '%';
+}
+
+/** Mismos umbrales y mismo texto que computeInsights() en index.html */
+function computeInsightsList(dataset, squadFilter) {
+  const items = [];
+  const noData = [];
+  Object.keys(dataset).forEach((squad) => {
+    if (squadFilter && squad !== squadFilter) return;
+    Object.keys(dataset[squad].products).forEach((prod) => {
+      const d = dataset[squad].products[prod];
+      if (d.ritmo === null) {
+        noData.push({ seg: squad, prod, kpi: d.kpi });
+        return;
+      }
+      if (d.ritmo >= 1.10) {
+        items.push({ type: 'positive', seg: squad, prod, text: `${prod} va ${pctFmt(d.ritmo - 1)} por encima del objetivo prorrateado a la fecha (${d.kpi}).`, mag: d.ritmo - 1 });
+      } else if (d.ritmo <= 0.85) {
+        items.push({ type: 'negative', seg: squad, prod, text: `${prod} está ${pctFmt(1 - d.ritmo)} por debajo del ritmo esperado a esta altura del mes (${d.kpi}).`, mag: 1 - d.ritmo });
+      }
+    });
+  });
+  items.sort((a, b) => b.mag - a.mag);
+  return { items: items.slice(0, 8), noData };
+}
+
+let insightsCache = { text: null, fetchedAt: 0 };
+const INSIGHTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 min — es una lectura más pesada (13 pestañas), no hace falta recalcular en cada mensaje
+
+/** Trae Plan Anual + los 12 meses (los borrados devuelven error, se ignoran), arma el dataset y calcula insights + dato destacado, ya formateados en texto listo para el prompt. */
+async function getGrowthInsightsBlock() {
+  const now = Date.now();
+  if (insightsCache.text && now - insightsCache.fetchedAt < INSIGHTS_CACHE_TTL_MS) {
+    return insightsCache.text;
+  }
+
+  let planCsv;
+  try {
+    planCsv = await fetchTab('Plan Anual');
+  } catch (err) {
+    return `\n(No se pudieron calcular Growth Insights / Dato destacado en este momento: ${String(err.message || err)}.)`;
+  }
+
+  const monthlyBySquadByMonth = {};
+  await Promise.all(MONTH_TABS.map(async (m) => {
+    try {
+      const csv = await fetchTab(m);
+      monthlyBySquadByMonth[m] = parseMonthTabRows(parseCsvRows(csv));
+    } catch (err) {
+      // pestañas borradas (Ene-Jun) o sin datos todavía: se tratan como mes sin carga, no es un error real
+    }
+  }));
+
+  const planBySquad = parsePlanAnualRows(parseCsvRows(planCsv));
+  const dataset = buildWorkingDataset(planBySquad, monthlyBySquadByMonth);
+
+  const global = computeInsightsList(dataset, null);
+  let destacado;
+  if (global.items.length) {
+    const top = global.items[0];
+    destacado = `${top.type === 'positive' ? 'Dato destacado · oportunidad' : 'Dato destacado · alerta'} (${top.seg}): ${top.text}`;
+  } else if (global.noData.length) {
+    destacado = `Dato destacado: ${global.noData.length} producto${global.noData.length > 1 ? 's' : ''} todavía sin carga de resultados este año — no hay desvíos fuertes que reportar por ahora.`;
+  } else {
+    destacado = `Dato destacado: todos los productos con carga están dentro del rango esperado (entre 85% y 110% de ritmo).`;
+  }
+
+  const bySquadLines = Object.keys(dataset).map((squad) => {
+    const { items, noData } = computeInsightsList(dataset, squad);
+    const lines = items.map((it) => `  - [${it.type === 'positive' ? '▲ oportunidad' : '▼ atención'}] ${it.text}`);
+    const noDataLines = noData.map((n) => `  - [sin carga de datos] "${n.prod}" (${n.kpi}) todavía no tiene resultados diarios cargados este año.`);
+    const all = [...lines, ...noDataLines];
+    return `${squad}:\n${all.length ? all.join('\n') : '  (nada para reportar — dentro del rango esperado o sin datos)'}`;
+  }).join('\n');
+
+  const text = `\n--- Growth Insights y Dato destacado (calculados igual que el tablero — ritmo ANUAL: acumulado real de todos los meses con carga ÷ objetivo de esos mismos meses prorrateado por día, NO es el ritmo de un solo mes) ---
+${destacado}
+
+Growth Insights por squad (▲ oportunidad si ritmo ≥110%, ▼ atención si ritmo ≤85%, hasta 8 por squad ordenados por magnitud):
+${bySquadLines}
+
+Usá estos insights tal cual cuando te pregunten por "Growth Insights", "dato destacado", "oportunidades" o "alertas" — no los recalcules desde las pestañas mensuales sueltas, ya vienen calculados con el mismo criterio que ve el equipo en el tablero. Esta es una métrica DISTINTA del ritmo mensual simple que usás para el resto de las respuestas (acumulado del mes ÷ meta del mes prorrateada a los días transcurridos) — si mezclás ambas en una misma respuesta, aclarale a la persona cuál es cuál.`;
+
+  insightsCache = { text, fetchedAt: now };
+  return text;
+}
+
 /**
  * mentionedMonths: nombres de pestaña (p.ej. ['Jul']) detectados en el mensaje
  * del usuario (y últimos turnos de la conversación), a pedir además de la base.
@@ -292,7 +628,7 @@ async function getLiveContext(mentionedMonths) {
  * System prompt: conocimiento de Growth + contexto Bancor +    *
  * tono + límites                                                *
  * ------------------------------------------------------------ */
-function buildSystemPrompt(liveContext) {
+function buildSystemPrompt(liveContext, insightsBlock, adsHistoryBlock) {
   let dataBlock;
   if (liveContext.planAnualCsv && liveContext.monthCsv) {
     const extraEntries = Object.entries(liveContext.extraMonths || {});
@@ -371,6 +707,8 @@ ${campaignsBlock}
 ${equipoBlock}
 ${googleAdsBlock}
 ${metaAdsBlock}
+${insightsBlock || ''}
+${adsHistoryBlock || ''}
 
 Cómo leer estos CSV:
 - "Plan Anual": columnas Squad | Producto | KPI / Métrica | Ene...Dic. Cada celda de
