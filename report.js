@@ -1,15 +1,15 @@
 /* ============================================================
    Informe semanal de Growth — Bancor + Bezza
-   Se auto-inyecta el overlay en el DOM. Requiere:
+   Se auto-inyecta en el DOM: primero un modal para cargar el
+   insight de cada PO (opcional), después el overlay con el informe
+   de los últimos 7 días. Requiere:
      - report.css cargado
      - un botón en el DOM con id="report-launch-btn" (index.html)
-     - window.GA_SELECTED_MONTH_TAB (opcional) para pedir el informe
-       del mes que esté mirando el usuario en el tablero; si no
-       existe, el backend usa el mes calendario en curso.
-   Backend: POST /api/growth-report  body: { monthTab? }
+   Backend: POST /api/growth-report  body: { comentariosPO?: {squad: texto} }
    ============================================================ */
 (function () {
   const ENDPOINT = window.GA_REPORT_ENDPOINT || '/api/growth-report';
+  const SQUADS = ['Adquisición y Crosselling', 'Habitualidad', 'Bezza Hub', 'Empresas'];
 
   const ICON_DOC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6M9 9h1"/></svg>`;
   const ICON_PRINT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>`;
@@ -79,6 +79,59 @@
     });
   }
 
+  /* ---- modal previo: insights de los PO por squad ---- */
+  function buildPoModal() {
+    if (document.getElementById('po-comments-overlay')) return;
+    const fields = SQUADS.map((sq) => `
+      <div class="po-field">
+        <label for="po-input-${slug(sq)}">${escapeHtml(sq)}</label>
+        <textarea id="po-input-${slug(sq)}" data-squad="${escapeHtml(sq)}" rows="2" placeholder="¿Algo para agregar sobre esta semana? (opcional)"></textarea>
+      </div>
+    `).join('');
+    const modal = el(`
+      <div id="po-comments-overlay">
+        <div id="po-comments-modal">
+          <h2>Antes de generar el informe</h2>
+          <div class="sub">Sumá el insight de cada PO sobre esta semana — el informe lo va a tener en cuenta al redactar cada squad, y además queda guardado en el Sheet como base de conocimiento para los próximos informes. Es opcional, podés dejarlo en blanco.</div>
+          <div id="po-fields">${fields}</div>
+          <div class="po-btn-row">
+            <button class="rt-btn" id="po-skip-btn">Generar sin comentarios</button>
+            <button class="rt-btn po-submit" id="po-submit-btn">Generar informe</button>
+          </div>
+        </div>
+      </div>
+    `);
+    document.body.appendChild(modal);
+    document.getElementById('po-skip-btn').addEventListener('click', () => submitPoModal(true));
+    document.getElementById('po-submit-btn').addEventListener('click', () => submitPoModal(false));
+    modal.addEventListener('click', (e) => { if (e.target === modal) closePoModal(); });
+  }
+
+  function slug(s) { return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-'); }
+
+  function openPoModal() {
+    buildPoModal();
+    document.getElementById('po-comments-overlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closePoModal() {
+    const modal = document.getElementById('po-comments-overlay');
+    if (modal) modal.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  function submitPoModal(skip) {
+    const comentarios = {};
+    if (!skip) {
+      SQUADS.forEach((sq) => {
+        const ta = document.getElementById('po-input-' + slug(sq));
+        if (ta && ta.value.trim()) comentarios[sq] = ta.value.trim();
+      });
+    }
+    closePoModal();
+    generateReport(comentarios);
+  }
+
   function openOverlay() {
     buildOverlay();
     document.getElementById('report-overlay').classList.add('open');
@@ -135,6 +188,12 @@
   function renderReport(payload) {
     const report = payload.report;
     const period = payload.period;
+    let commentsNote = '';
+    if (payload.commentsSavedCount) {
+      commentsNote = payload.commentsSaved
+        ? ` · ${payload.commentsSavedCount} comentario${payload.commentsSavedCount > 1 ? 's' : ''} de PO guardado${payload.commentsSavedCount > 1 ? 's' : ''} en el Sheet`
+        : ` · no se pudieron guardar los comentarios de PO en el Sheet (${escapeHtml(payload.commentsError || 'sin detalle')}) — se usaron igual para este informe`;
+    }
 
     const squadsHtml = (report.squads || []).map((sq) => {
       const productos = (sq.productos || []).map((p) => `
@@ -159,7 +218,7 @@
     }).join('');
 
     const campaigns = report.campanas || [];
-    const campaignsHtml = campaigns.length ? campaigns.map((c) => `
+    const campaignsHtml = campaigns.map((c) => `
       <div class="rp-camp-card">
         <div class="rp-camp-top">
           <span class="rp-camp-name">${escapeHtml(c.nombre)}</span>
@@ -172,7 +231,15 @@
         </div>
         <div class="rp-camp-note">${escapeHtml(c.nota || '')}</div>
       </div>
-    `).join('') : `<div class="rp-sub">No hay campañas con datos suficientes para destacar en este período.</div>`;
+    `).join('');
+    // Solo se muestra la sección si el modelo encontró algo realmente destacable esta semana —
+    // no se fuerza a mostrar medios pagos/campañas de relleno.
+    const campaignsSection = campaigns.length ? `
+      <div class="rp-section" id="rp-sec-campaigns">
+        <h2><span class="rp-dot" style="background:var(--orange-fill);"></span>Campañas y experimentos del período</h2>
+        <div class="rp-sub">Lo más relevante de la semana — se muestra solo lo que aporta al ritmo de algún squad.</div>
+        <div class="rp-camp-grid">${campaignsHtml}</div>
+      </div>` : '';
 
     const insightsHtml = (report.insights || []).map((ins) => `
       <div class="rp-insight ${ins.tipo === 'positive' ? 'positive' : 'negative'}">
@@ -220,11 +287,7 @@
         <div class="rp-squad-grid">${squadsHtml}</div>
       </div>
 
-      <div class="rp-section" id="rp-sec-campaigns">
-        <h2><span class="rp-dot" style="background:var(--orange-fill);"></span>Campañas y experimentos del período</h2>
-        <div class="rp-sub">Principales campañas activas, cruzadas con su squad y su impacto en el ritmo.</div>
-        <div class="rp-camp-grid">${campaignsHtml}</div>
-      </div>
+      ${campaignsSection}
 
       <div class="rp-section" id="rp-sec-insights">
         <h2><span class="rp-dot" style="background:var(--lavender-fill);"></span>Insights relevantes</h2>
@@ -235,7 +298,7 @@
       ${recosSection}
 
       <div class="rp-footer">
-        <span>Datos leídos en vivo del Sheet · ${escapeHtml(new Date(payload.dataAsOf).toLocaleString('es-AR'))}</span>
+        <span>Datos leídos en vivo del Sheet · ${escapeHtml(new Date(payload.dataAsOf).toLocaleString('es-AR'))}${commentsNote}</span>
         <span>Generado por el Asistente de Growth · Bancor + Bezza</span>
       </div>
     `;
@@ -268,11 +331,10 @@
     errEl.style.display = 'block';
   }
 
-  async function generateReport() {
+  async function generateReport(comentariosPO) {
     openOverlay();
     try {
-      const body = {};
-      if (window.GA_SELECTED_MONTH_TAB) body.monthTab = window.GA_SELECTED_MONTH_TAB;
+      const body = { comentariosPO: comentariosPO || {} };
 
       const res = await fetch(ENDPOINT, {
         method: 'POST',
@@ -294,7 +356,7 @@
 
   function wire() {
     const btn = document.getElementById('report-launch-btn');
-    if (btn) btn.addEventListener('click', generateReport);
+    if (btn) btn.addEventListener('click', openPoModal);
   }
 
   if (document.readyState === 'loading') {
