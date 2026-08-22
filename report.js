@@ -185,9 +185,10 @@
   }
 
   /* ---- render ---- */
-  function renderReport(payload) {
+  function renderReport(payload, comentariosPO) {
     const report = payload.report;
     const period = payload.period;
+    const comentarios = comentariosPO || {};
     let commentsNote = '';
     if (payload.commentsSavedCount) {
       commentsNote = payload.commentsSaved
@@ -203,6 +204,16 @@
         </div>
       `).join('');
       const ritmo = Math.max(0, Math.min(160, sq.ritmoPromedioPct || 0));
+      const comentarioPO = sq.comentarioPO;
+      const poQuoteHtml = comentarioPO ? `
+        <div class="rp-po-quote">
+          <span class="rp-po-quote-icon">💬</span>
+          <div>
+            <div class="rp-po-quote-label">Insight del PO · ${escapeHtml(sq.po || '')}</div>
+            <div class="rp-po-quote-text">${escapeHtml(comentarioPO)}</div>
+          </div>
+        </div>
+      ` : '';
       return `
         <div class="rp-squad-card">
           <div class="rp-squad-head">
@@ -211,6 +222,7 @@
           </div>
           <div class="rp-squad-po">PO · ${escapeHtml(sq.po || 'Sin asignar')}</div>
           <div class="rp-squad-headline">${escapeHtml(sq.headline || '')}</div>
+          ${poQuoteHtml}
           <div class="rp-bar-track"><div class="rp-bar-fill" data-target="${ritmo}" style="background:${estadoBarColor(sq.estado)};"></div></div>
           ${productos}
         </div>
@@ -269,6 +281,7 @@
           <span class="rp-bezza-chip">Bezza</span>
         </div>
         <div class="rp-period"><span class="dot"></span>Período: ${escapeHtml(period.label)}</div>
+        ${Object.keys(comentarios).length ? `<div class="rp-po-badge">💬 ${Object.keys(comentarios).length} comentario${Object.keys(comentarios).length > 1 ? 's' : ''} de PO incorporado${Object.keys(comentarios).length > 1 ? 's' : ''}</div>` : ''}
       </div>
       <div class="rp-title">Informe semanal de Growth — para Dirección</div>
       <div class="rp-summary">${escapeHtml(report.resumenEjecutivo || '')}</div>
@@ -348,7 +361,7 @@
         renderError(data.error);
         return;
       }
-      renderReport(data);
+      renderReport(data, comentariosPO);
     } catch (err) {
       renderError('No se pudo generar el informe — se cortó la conexión con el servidor. Probá de nuevo en un momento.');
     }
