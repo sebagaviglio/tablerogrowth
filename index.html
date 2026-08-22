@@ -518,7 +518,7 @@
   <div class="campaigns-panel">
     <div class="cp-head collapsible-head" id="campaigns-toggle-row">
       <div>
-        <h4>Campañas vigentes</h4>
+        <h4>Tareas en proceso</h4>
         <div class="cp-sub" id="campaigns-subtitle">Fuente: Azure DevOps</div>
       </div>
       <div class="panel-toggle-area">
@@ -533,7 +533,7 @@
   <div class="paidmedia-panel">
     <div class="pm-head collapsible-head" id="paidmedia-toggle-row">
       <div>
-        <h3><span class="lime-dot"></span>Medios pagos · Google Ads</h3>
+        <h3 style="display:flex; align-items:center; gap:9px;">Medios pagos · <img src="google-ads-logo.png" alt="Google Ads" style="height:19px; width:auto; display:block;"></h3>
         <div class="pm-sub">Gasto y CPA en vivo desde Google Ads, cuenta 113-524-1144 (MCC) · mostrando solo las campañas asignadas al squad activo · Squad y Objetivo se cargan en la pestaña "Google Ads" del Sheet</div>
       </div>
       <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
@@ -553,7 +553,7 @@
   <div class="paidmedia-panel">
     <div class="pm-head collapsible-head" id="metamedia-toggle-row">
       <div>
-        <h3><span class="lime-dot" style="background:var(--magenta-fill); box-shadow:0 0 6px var(--magenta-fill);"></span>Medios pagos · Meta Ads</h3>
+        <h3 style="display:flex; align-items:center; gap:9px;">Medios pagos · <img src="meta-ads-logo.webp" alt="Meta Ads" style="height:19px; width:auto; display:block;"></h3>
         <div class="pm-sub">Gasto y conversiones en vivo desde Meta Ads (Facebook/Instagram) · mostrando solo las campañas asignadas al squad activo · Objetivo se trae automático de Meta, Squad se carga en la pestaña "Meta Ads" del Sheet</div>
       </div>
       <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
@@ -1919,8 +1919,8 @@ function renderCampaigns(){
   // Desactivado para meses anteriores al actual: las campañas son "vigentes
   // hoy", no tiene sentido mostrarlas al mirar el histórico de un mes pasado.
   if(monthUnavailable){
-    if(sub) sub.textContent = `No disponible para ${MONTHS[SELECTED_MONTH_IDX]} — las campañas vigentes solo se muestran para el mes actual (${MONTHS[CURRENT_MONTH_IDX]}).`;
-    wrap.innerHTML = `<div class="cp-empty">Elegí ${MONTHS[CURRENT_MONTH_IDX]} en el selector de arriba para ver las campañas vigentes.</div>`;
+    if(sub) sub.textContent = `No disponible para ${MONTHS[SELECTED_MONTH_IDX]} — las tareas en proceso solo se muestran para el mes actual (${MONTHS[CURRENT_MONTH_IDX]}).`;
+    wrap.innerHTML = `<div class="cp-empty">Elegí ${MONTHS[CURRENT_MONTH_IDX]} en el selector de arriba para ver las tareas en proceso.</div>`;
     return;
   }
 
@@ -1932,7 +1932,7 @@ function renderCampaigns(){
   }
 
   if(!campsDelSquad.length){
-    wrap.innerHTML = `<div class="cp-empty">No hay campañas vigentes para el squad "${ACTIVE_SEGMENT}".</div>`;
+    wrap.innerHTML = `<div class="cp-empty">No hay tareas en proceso para el squad "${ACTIVE_SEGMENT}".</div>`;
     return;
   }
 
