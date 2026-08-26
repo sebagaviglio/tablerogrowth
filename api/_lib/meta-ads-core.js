@@ -125,6 +125,17 @@ async function checkAccountsHealth(env, datePreset) {
   const accountIds = getAccountIds(env);
   const preset = datePreset || 'last_7d';
 
+  if (!accessToken) {
+    const err = new Error('Falta META_ACCESS_TOKEN.');
+    err.status = 500;
+    throw err;
+  }
+  if (!accountIds.length) {
+    const err = new Error('META_AD_ACCOUNT_IDS está vacía o no está seteada — revisá el nombre exacto de la env var en Vercel y que el deploy sea posterior a cargarla.');
+    err.status = 500;
+    throw err;
+  }
+
   const results = [];
   for (const accountId of accountIds) {
     try {
