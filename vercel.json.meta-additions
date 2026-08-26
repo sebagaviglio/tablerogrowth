@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "api/meta-insights.js": {
+      "maxDuration": 30
+    },
+    "api/meta-ads-proxy.js": {
+      "maxDuration": 30
+    },
+    "api/meta-ads-sheet-sync.js": {
+      "maxDuration": 30
+    }
+  }
+}
