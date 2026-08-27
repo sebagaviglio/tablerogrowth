@@ -1056,18 +1056,33 @@ function parseFlexibleDate(str){
 
 // Parsea la pestaña "Comentarios PO" (la crea el doPost del informe semanal):
 // encabezado Fecha de registro | Semana del informe | Squad | Comentario del PO
+// Normaliza nombres de squad para cruzar comentarios aunque haya pequeñas
+// diferencias de acentos/espacios entre lo que guardó el Sheet y las keys
+// que usa el tablero (defensivo: nunca debería hacer falta, pero blinda
+// contra problemas de encoding al ida y vuelta por CSV).
+function normSquadKey(s){
+  return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+}
+
 function parsePOCommentsTab(rows){
   const out = {};
   if(!rows || rows.length < 2) return out;
+  let skippedNoDate = 0, skippedNoSquadOrText = 0;
   for(let r=1; r<rows.length; r++){
     const row = rows[r]; if(!row) continue;
-    const fecha = parseFlexibleDate(norm(row[0]));
+    const fechaRaw = norm(row[0]);
+    const fecha = parseFlexibleDate(fechaRaw);
     const semana = norm(row[1]);
     const squad = norm(row[2]);
     const texto = norm(row[3]);
-    if(!squad || !texto || !fecha) continue;
-    out[squad] = out[squad] || [];
-    out[squad].push({ date: fecha, semana, texto });
+    if(!squad || !texto){ skippedNoSquadOrText++; continue; }
+    if(!fecha){ skippedNoDate++; console.warn('[Bancor Growth] Comentarios PO: no pude parsear la fecha de un comentario', {fechaRaw, squad, texto}); continue; }
+    const key = normSquadKey(squad);
+    out[key] = out[key] || [];
+    out[key].push({ date: fecha, semana, texto, squadLabel: squad });
+  }
+  if(skippedNoDate || skippedNoSquadOrText){
+    console.warn(`[Bancor Growth] Comentarios PO: ${skippedNoDate} fila(s) con fecha no reconocida, ${skippedNoSquadOrText} fila(s) sin squad/texto — se ignoraron.`);
   }
   return out;
 }
@@ -1075,10 +1090,32 @@ function parsePOCommentsTab(rows){
 // Comentarios de un squad registrados en un día calendario puntual (mismo día/mes/año) —
 // para cruzar con el punto del día correspondiente en el gráfico evolutivo diario.
 function poCommentsForDay(squad, year, monthIdx, day){
-  const list = PO_COMMENTS[squad];
+  const list = PO_COMMENTS[normSquadKey(squad)];
   if(!list || !list.length) return [];
   return list.filter(c => c.date.getFullYear()===year && c.date.getMonth()===monthIdx && c.date.getDate()===day);
 }
+
+// Vuelve a leer SOLO la pestaña "Comentarios PO" (sin re-sincronizar todo el resto)
+// y re-renderiza el evolutivo si está abierto. report.js la llama automáticamente
+// apenas confirma que guardó los comentarios del PO, para que aparezcan en el
+// tooltip sin tener que esperar a la próxima sincronización completa.
+async function refreshPOComments(){
+  try{
+    const cfg = await loadConfig();
+    if(!cfg || (!cfg.sheetId && !cfg.appsScriptUrl)) return false;
+    const csv = await fetchTabCSV(cfg.sheetId, 'Comentarios PO', cfg.appsScriptUrl);
+    PO_COMMENTS = parsePOCommentsTab(parseCSV(csv));
+    console.log(`[Bancor Growth] Comentarios PO refrescado — ${Object.values(PO_COMMENTS).reduce((a,l)=>a+l.length,0)} comentario(s) en ${Object.keys(PO_COMMENTS).length} squad(s).`);
+    const cache = await loadCache();
+    if(cache) await saveCache({ ...cache, poComments: PO_COMMENTS });
+    if(ACTIVE_SEGMENT) renderEvolutivo(ACTIVE_SEGMENT);
+    return true;
+  }catch(err){
+    console.warn('[Bancor Growth] No se pudo refrescar Comentarios PO:', err && err.message ? err.message : err);
+    return false;
+  }
+}
+window.GA_refreshPOComments = refreshPOComments;
 
 
 // Combina Plan Anual + las 12 pestañas mensuales (ya parseadas) en el formato REAL_SEED
@@ -2528,10 +2565,13 @@ async function init(){
       CAMPAIGNS = cache.campaigns || [];
       GADS_ASSIGN = cache.googleAdsAssign || {};
       MADS_ASSIGN = cache.metaAdsAssign || {};
-      // Revivir los Date (JSON.stringify los guardó como string ISO)
+      // Revivir los Date (JSON.stringify los guardó como string ISO) y normalizar
+      // la key de squad, por si el cache quedó de una versión anterior a este fix.
       PO_COMMENTS = {};
       Object.keys(cache.poComments || {}).forEach(squad=>{
-        PO_COMMENTS[squad] = (cache.poComments[squad]||[]).map(c=> ({ ...c, date: new Date(c.date) })).filter(c=> !isNaN(c.date.getTime()));
+        const key = normSquadKey(squad);
+        const revived = (cache.poComments[squad]||[]).map(c=> ({ ...c, date: new Date(c.date) })).filter(c=> !isNaN(c.date.getTime()));
+        PO_COMMENTS[key] = (PO_COMMENTS[key]||[]).concat(revived);
       });
       renderAll();
       document.getElementById('last-sync').textContent = new Date(cache.fetchedAt).toLocaleString('es-AR');

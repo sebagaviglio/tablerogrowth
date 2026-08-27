@@ -194,6 +194,12 @@
       commentsNote = payload.commentsSaved
         ? ` · ${payload.commentsSavedCount} comentario${payload.commentsSavedCount > 1 ? 's' : ''} de PO guardado${payload.commentsSavedCount > 1 ? 's' : ''} en el Sheet`
         : ` · no se pudieron guardar los comentarios de PO en el Sheet (${escapeHtml(payload.commentsError || 'sin detalle')}) — se usaron igual para este informe`;
+      // Si se guardaron bien, refrescamos solo esa pestaña en el tablero de fondo
+      // (sin esperar a la próxima sincronización completa) para que ya aparezcan
+      // en el tooltip del evolutivo diario apenas se cierra el informe.
+      if (payload.commentsSaved && typeof window.GA_refreshPOComments === 'function') {
+        window.GA_refreshPOComments();
+      }
     }
 
     const squadsHtml = (report.squads || []).map((sq) => {
