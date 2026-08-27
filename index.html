@@ -1036,11 +1036,22 @@ function parseMetaAdsTab(rows){
 }
 
 // Intenta parsear la fecha de registro de un comentario en varios formatos
-// posibles (depende de cómo Apps Script haya volcado el objeto Date a texto
-// en el CSV: ISO, "dd/mm/aaaa hh:mm:ss" en formato AR, o el toString() nativo).
+// posibles. El formato REAL que devuelve el doGet del Sheet es "yyyy-MM-dd"
+// (vía Utilities.formatDate, sin hora) — se parsea con el constructor local
+// a propósito: new Date('yyyy-mm-dd') lo interpretaría como medianoche UTC,
+// y en husos horarios negativos (ej. Argentina, UTC-3) eso corre la fecha un
+// día para atrás al leerla en hora local. Los demás formatos quedan como
+// respaldo por si el formato de exportación cambia en el futuro.
 function parseFlexibleDate(str){
   if(!str) return null;
   const s = str.trim();
+  // yyyy-mm-dd (formato real de toCsvCell en el Apps Script)
+  const mISO = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(mISO){
+    const [, yyyy, mm, dd] = mISO;
+    const d = new Date(+yyyy, +mm-1, +dd);
+    if(!isNaN(d.getTime())) return d;
+  }
   // dd/mm/aaaa[ hh:mm[:ss]]
   const mDMY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
   if(mDMY){
@@ -1048,7 +1059,7 @@ function parseFlexibleDate(str){
     const d = new Date(+yyyy, +mm-1, +dd, +(hh||0), +(min||0), +(sec||0));
     if(!isNaN(d.getTime())) return d;
   }
-  // ISO u otros formatos que Date() entiende nativamente
+  // ISO con hora u otros formatos que Date() entiende nativamente
   const native = new Date(s);
   if(!isNaN(native.getTime())) return native;
   return null;
