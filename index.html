@@ -246,7 +246,7 @@
     width: max-content; max-width: min(240px, 65vw); background: var(--ink-900); color: #fff;
     border: 1px solid var(--teal-500); border-radius: 9px; padding: 10px 12px; font-size:11.5px;
     font-family: var(--font-body); line-height:1.45; font-weight:400; letter-spacing:0;
-    text-transform:none; box-shadow: var(--shadow-lg);
+    text-transform:none; box-shadow: var(--shadow-lg); white-space: pre-line;
     opacity:0; pointer-events:none; transition: opacity .18s ease, transform .18s ease; z-index:40;
   }
   .has-tip::before{
@@ -290,6 +290,25 @@
   .ev-bar-label{ font-family: var(--font-mono); font-size:10px; color: var(--ink-500); }
   .ev-bar-pct{ font-family: var(--font-mono); font-size:9.5px; color: var(--ink-700); }
   .ev-empty{ font-size:12.5px; color: var(--ink-500); padding: 10px 0; }
+
+  .ev-daily-wrap{ position:relative; width:100%; aspect-ratio: 640 / 200; }
+  .ev-daily-wrap svg{ position:absolute; inset:0; width:100%; height:100%; }
+  .ev-point{
+    position:absolute; width:16px; height:16px; margin-left:-8px; margin-top:-8px;
+    border-radius:50%; cursor:help; z-index:2;
+  }
+  .ev-point::before{
+    content:''; position:absolute; inset:5px; border-radius:50%; background: transparent;
+    transition: background .12s ease, transform .12s ease; transform: scale(1);
+  }
+  .ev-point:hover::before{ background: var(--ink-900); transform: scale(1.3); opacity:0.18; }
+  .ev-point.has-comment::before{ background: var(--lavender-fill); opacity:1; box-shadow:0 0 0 3px rgba(203,145,255,0.25); }
+  .ev-point.has-comment:hover::before{ transform: scale(1.25); }
+  .ev-info-icon{
+    display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px;
+    border-radius:50%; background: var(--surface-2); color: var(--ink-500); font-family: var(--font-mono);
+    font-size:10px; cursor:help; flex-shrink:0;
+  }
 
   /* ---------- MAIN GRID ---------- */
   .main-grid{ display:grid; grid-template-columns: 1.6fr 1fr; gap: 22px; align-items:start; }
@@ -804,6 +823,7 @@ const SQUAD_NAME_VARIANTS = {
 };
 
 function norm(s){ return (s||'').toString().replace(/\s+/g,' ').trim(); }
+function escAttr(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // Parsea la pestaña "Plan Anual"
 function parsePlanAnual(rows){
@@ -1015,6 +1035,51 @@ function parseMetaAdsTab(rows){
   return out;
 }
 
+// Intenta parsear la fecha de registro de un comentario en varios formatos
+// posibles (depende de cómo Apps Script haya volcado el objeto Date a texto
+// en el CSV: ISO, "dd/mm/aaaa hh:mm:ss" en formato AR, o el toString() nativo).
+function parseFlexibleDate(str){
+  if(!str) return null;
+  const s = str.trim();
+  // dd/mm/aaaa[ hh:mm[:ss]]
+  const mDMY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(mDMY){
+    const [, dd, mm, yyyy, hh, min, sec] = mDMY;
+    const d = new Date(+yyyy, +mm-1, +dd, +(hh||0), +(min||0), +(sec||0));
+    if(!isNaN(d.getTime())) return d;
+  }
+  // ISO u otros formatos que Date() entiende nativamente
+  const native = new Date(s);
+  if(!isNaN(native.getTime())) return native;
+  return null;
+}
+
+// Parsea la pestaña "Comentarios PO" (la crea el doPost del informe semanal):
+// encabezado Fecha de registro | Semana del informe | Squad | Comentario del PO
+function parsePOCommentsTab(rows){
+  const out = {};
+  if(!rows || rows.length < 2) return out;
+  for(let r=1; r<rows.length; r++){
+    const row = rows[r]; if(!row) continue;
+    const fecha = parseFlexibleDate(norm(row[0]));
+    const semana = norm(row[1]);
+    const squad = norm(row[2]);
+    const texto = norm(row[3]);
+    if(!squad || !texto || !fecha) continue;
+    out[squad] = out[squad] || [];
+    out[squad].push({ date: fecha, semana, texto });
+  }
+  return out;
+}
+
+// Comentarios de un squad registrados en un día calendario puntual (mismo día/mes/año) —
+// para cruzar con el punto del día correspondiente en el gráfico evolutivo diario.
+function poCommentsForDay(squad, year, monthIdx, day){
+  const list = PO_COMMENTS[squad];
+  if(!list || !list.length) return [];
+  return list.filter(c => c.date.getFullYear()===year && c.date.getMonth()===monthIdx && c.date.getDate()===day);
+}
+
 
 // Combina Plan Anual + las 12 pestañas mensuales (ya parseadas) en el formato REAL_SEED
 function combineSheetData(planData, monthlyByTab){
@@ -1051,6 +1116,7 @@ let isDemo = true;
 let CAMPAIGNS = []; // cargado desde la pestaña "Campañas" del Sheet (Azure DevOps)
 let GADS_ASSIGN = {}; // cargado desde la pestaña "Google Ads" del Sheet: id -> {squad, objetivo}
 let MADS_ASSIGN = {}; // cargado desde la pestaña "Meta Ads" del Sheet: id -> {squad}
+let PO_COMMENTS = {}; // cargado desde la pestaña "Comentarios PO" (informe semanal): squad -> [{date, texto, semana}]
 
 /* ---------- HELPERS ---------- */
 function fmtNum(n){
@@ -1337,7 +1403,19 @@ async function fetchFromSheet(showToast=true){
       diag(`Meta Ads (asignaciones): sin datos todavía (${madsErr && madsErr.message ? madsErr.message : madsErr})`);
     }
 
-    await saveCache({seed, campaigns: CAMPAIGNS, googleAdsAssign: GADS_ASSIGN, metaAdsAssign: MADS_ASSIGN, fetchedAt: new Date().toISOString()});
+    // Pestaña "Comentarios PO": la crea el doPost del informe semanal. Opcional y
+    // no bloqueante — si todavía no existe (nunca se generó un informe con
+    // comentarios), simplemente no hay nada para cruzar en el evolutivo diario.
+    try{
+      const commentsCSV = await fetchTabCSV(cfg.sheetId, 'Comentarios PO', cfg.appsScriptUrl);
+      PO_COMMENTS = parsePOCommentsTab(parseCSV(commentsCSV));
+      diag(`Comentarios PO OK — ${Object.values(PO_COMMENTS).reduce((a,l)=>a+l.length,0)} comentario(s) en ${Object.keys(PO_COMMENTS).length} squad(s)`);
+    }catch(commentsErr){
+      PO_COMMENTS = {};
+      diag(`Comentarios PO: sin datos todavía (${commentsErr && commentsErr.message ? commentsErr.message : commentsErr})`);
+    }
+
+    await saveCache({seed, campaigns: CAMPAIGNS, googleAdsAssign: GADS_ASSIGN, metaAdsAssign: MADS_ASSIGN, poComments: PO_COMMENTS, fetchedAt: new Date().toISOString()});
     if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
     renderAll();
     renderPaidMedia();
@@ -1614,10 +1692,12 @@ function computeDailySeries(seg, productFilter){
 
   let products;
   if(!productFilter || productFilter === '__squad__'){
-    products = Object.values(sq.products).filter(p => p.dailyByMonth[monthLabel] && p.plan[monthIdx] !== null && p.plan[monthIdx] !== undefined && p.plan[monthIdx] > 0);
+    products = Object.entries(sq.products)
+      .filter(([, p]) => p.dailyByMonth[monthLabel] && p.plan[monthIdx] !== null && p.plan[monthIdx] !== undefined && p.plan[monthIdx] > 0)
+      .map(([name, p]) => ({ ...p, name }));
   } else {
     const p = sq.products[productFilter];
-    products = (p && p.dailyByMonth[monthLabel] && p.plan[monthIdx]) ? [p] : [];
+    products = (p && p.dailyByMonth[monthLabel] && p.plan[monthIdx]) ? [{ ...p, name: productFilter }] : [];
   }
   if(!products.length) return { monthIdx, monthLabel, daysInMonthCount, points: [], asOfDay: 0 };
 
@@ -1633,16 +1713,18 @@ function computeDailySeries(seg, productFilter){
   const points = [];
   for(let d=1; d<=daysInMonthCount; d++){
     const realPcts = [];
+    const breakdown = [];
     products.forEach((p,i)=>{
       const v = p.dailyByMonth[monthLabel][d-1];
       if(v !== null && v !== undefined){ runningSums[i] += v; }
       realPcts.push(runningSums[i] / p.plan[monthIdx] * 100);
+      breakdown.push({ name: p.name || null, kpi: p.kpi, dayValue: (v!==null && v!==undefined) ? v : null, cumAbs: runningSums[i] });
     });
     const objPct = (d / daysInMonthCount) * 100;
     const realPct = realPcts.reduce((a,b)=>a+b,0) / realPcts.length;
-    points.push({ day: d, objPct, realPct: d<=asOfDay ? realPct : null });
+    points.push({ day: d, objPct, realPct: d<=asOfDay ? realPct : null, breakdown });
   }
-  return { monthIdx, monthLabel, daysInMonthCount, points, asOfDay };
+  return { monthIdx, monthLabel, daysInMonthCount, points, asOfDay, products };
 }
 
 function dailyChartSVG(series, color){
@@ -1664,13 +1746,47 @@ function dailyChartSVG(series, color){
   const gapNow = lastPoint ? (lastPoint.realPct - lastPoint.objPct) : 0;
   const gapColor = gapNow >= 0 ? 'var(--lime-fill)' : 'var(--magenta-fill)';
 
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; max-height:220px;">
+  const svg = `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
     <line x1="${padL}" y1="${y(100)}" x2="${w-padR}" y2="${y(100)}" stroke="var(--border-strong)" stroke-width="1" stroke-dasharray="2,3"/>
     ${gapPoly.length ? `<polygon points="${gapPoly}" fill="${gapColor}" opacity="0.16"/>` : ''}
     <polyline points="${objPts}" fill="none" stroke="var(--ink-300)" stroke-width="2" stroke-dasharray="4,3"/>
     <polyline points="${realPts}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
     ${lastPoint ? `<circle cx="${x(lastPoint.day)}" cy="${y(lastPoint.realPct)}" r="4" fill="${color}"/>` : ''}
   </svg>`;
+  return { svg, w, h, x, y };
+}
+
+// Arma el texto del tooltip de un día puntual de la línea de Cumplido: la
+// cantidad real acumulada a esa fecha (desglosada por producto si hay más de
+// uno), el % de cumplido vs. objetivo, y — si el PO cargó un comentario ese
+// mismo día calendario para este squad — lo suma al final del tooltip.
+function dailyPointTooltip(seg, series, point){
+  const dateLabel = `${point.day} de ${series.monthLabel}`;
+  const lines = [`Día ${dateLabel}`];
+
+  if(point.breakdown.length === 1){
+    const b = point.breakdown[0];
+    lines.push(`${b.name}: ${fmtInt(b.cumAbs)} acumulado (${b.kpi})`);
+    if(b.dayValue !== null) lines.push(`Carga de ese día: +${fmtInt(b.dayValue)}`);
+  } else {
+    point.breakdown.forEach(b=>{
+      lines.push(`${b.name}: ${fmtInt(b.cumAbs)} acum.${b.dayValue!==null ? ` (+${fmtInt(b.dayValue)} ese día)` : ''}`);
+    });
+  }
+  if(point.realPct !== null) lines.push(`Cumplido: ${point.realPct.toFixed(0)}% · Objetivo a la fecha: ${point.objPct.toFixed(0)}%`);
+
+  const year = new Date(2026, series.monthIdx, 1).getFullYear();
+  const comments = poCommentsForDay(seg, year, series.monthIdx, point.day);
+  if(comments.length){
+    lines.push('');
+    comments.forEach(c=> lines.push(`💬 PO: "${c.texto}"`));
+  }
+  return lines.join('\n');
+}
+
+function fmtInt(n){
+  if(n===null || n===undefined || isNaN(n)) return '—';
+  return Math.round(n).toLocaleString('es-AR');
 }
 
 function renderDailyBody(seg, productFilter){
@@ -1690,15 +1806,33 @@ function renderDailyBody(seg, productFilter){
     ? `▲ ${subject} va ${Math.abs(gap).toFixed(1)} pts por encima del objetivo a la fecha (día ${series.asOfDay} de ${series.daysInMonthCount} de ${series.monthLabel}).`
     : `▼ ${subject} va ${Math.abs(gap).toFixed(1)} pts por debajo del objetivo a la fecha (día ${series.asOfDay} de ${series.daysInMonthCount} de ${series.monthLabel}).`;
 
+  const { svg, w, h, x, y } = dailyChartSVG(series, color);
+
+  // Un punto interactivo por cada día con carga (línea de Cumplido): al pasar el
+  // mouse muestra la cantidad real de ese día y, si el PO cargó un comentario ese
+  // mismo día, lo suma al tooltip. Los días con comentario quedan marcados con un
+  // punto lavanda visible aunque no se esté haciendo hover.
+  const pointsHtml = series.points.filter(p=>p.realPct!==null).map(p=>{
+    const leftPct = (x(p.day)/w*100).toFixed(2);
+    const topPct = (y(p.realPct)/h*100).toFixed(2);
+    const year = new Date(2026, series.monthIdx, 1).getFullYear();
+    const hasComment = poCommentsForDay(seg, year, series.monthIdx, p.day).length > 0;
+    const tipClass = leftPct > 75 ? 'tip-right' : '';
+    return `<div class="ev-point has-tip ${tipClass} ${hasComment?'has-comment':''}" style="left:${leftPct}%; top:${topPct}%;" data-tip="${escAttr(dailyPointTooltip(seg, series, p))}"></div>`;
+  }).join('');
+
   body.innerHTML = `
-    <div class="has-tip" data-tip="Línea punteada = objetivo (avance lineal esperado, 0% a 100% a lo largo del mes). Línea sólida = cumplido acumulado real hasta hoy. El área sombreada es la brecha entre ambas.">
-      ${dailyChartSVG(series, color)}
+    <div class="ev-daily-wrap">
+      ${svg}
+      ${pointsHtml}
     </div>
     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; flex-wrap:wrap; gap:8px;">
       <div style="font-size:12.5px; color:${gap>=0?'var(--lime-ink)':'var(--magenta-ink)'};">${gapTxt}</div>
-      <div style="font-family:var(--font-mono); font-size:10.5px; color:var(--ink-500); display:flex; gap:14px;">
+      <div style="font-family:var(--font-mono); font-size:10.5px; color:var(--ink-500); display:flex; align-items:center; gap:14px;">
         <span><span style="display:inline-block; width:10px; height:2px; background:var(--ink-300); vertical-align:middle; margin-right:4px;"></span>Objetivo</span>
         <span><span style="display:inline-block; width:10px; height:2px; background:${color}; vertical-align:middle; margin-right:4px;"></span>Cumplido</span>
+        <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--lavender-fill); vertical-align:middle; margin-right:4px;"></span>Con comentario de PO</span>
+        <span class="ev-info-icon has-tip tip-right" data-tip="Pasá el mouse sobre cualquier día de la línea sólida (Cumplido) para ver la cantidad real acumulada ese día y, si el PO cargó un comentario esa fecha, lo vas a ver ahí mismo.">ⓘ</span>
       </div>
     </div>`;
 }
@@ -2394,6 +2528,11 @@ async function init(){
       CAMPAIGNS = cache.campaigns || [];
       GADS_ASSIGN = cache.googleAdsAssign || {};
       MADS_ASSIGN = cache.metaAdsAssign || {};
+      // Revivir los Date (JSON.stringify los guardó como string ISO)
+      PO_COMMENTS = {};
+      Object.keys(cache.poComments || {}).forEach(squad=>{
+        PO_COMMENTS[squad] = (cache.poComments[squad]||[]).map(c=> ({ ...c, date: new Date(c.date) })).filter(c=> !isNaN(c.date.getTime()));
+      });
       renderAll();
       document.getElementById('last-sync').textContent = new Date(cache.fetchedAt).toLocaleString('es-AR');
     } else {
