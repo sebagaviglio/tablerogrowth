@@ -910,6 +910,48 @@ function parseMonthTab(rows){
   return result;
 }
 
+// Recorre la misma estructura de bloques que parseMonthTab, pero en vez de
+// acumular valores arma un mapa (fila absoluta, columna absoluta) -> {squad,
+// prod, day} — para poder ubicar en qué squad/producto/día cae una NOTA de
+// celda (fila/col también absolutas, 1-indexadas desde el Apps Script).
+function buildCellCoordIndex(rows){
+  const index = {};
+  const maxR = rows.length;
+  let r = 0;
+  while(r < maxR){
+    const c0 = rows[r] ? rows[r][0] : '';
+    if(c0 && c0.includes('PO:')){
+      const namePart = c0.split('·')[0].trim().toUpperCase();
+      let squad = namePart;
+      for(const key in SQUAD_NAME_VARIANTS){ if(namePart.includes(key)){ squad = SQUAD_NAME_VARIANTS[key]; break; } }
+      const headerRow = rows[r+1] || [];
+      const prodCols = [];
+      for(let ci=2; ci<headerRow.length; ci++){
+        const h = norm(headerRow[ci]);
+        if(h && h.toUpperCase().startsWith('TOTAL')) break;
+        if(h) prodCols.push([ci, h]);
+      }
+      let rr = r+2;
+      while(rr < maxR){
+        const row = rows[rr] || [];
+        const c0b = norm(row[0]);
+        if(c0b.includes('PO:')) break;
+        const dia = parseFloat(row[0]);
+        if(!isNaN(dia) && row[0] !== ''){
+          prodCols.forEach(([ci,name])=>{ index[`${rr},${ci}`] = { squad, prod:name, day: dia }; });
+          rr++;
+        } else if(norm(row[1]) === 'TOTAL ACUM'){
+          break;
+        } else { rr++; }
+      }
+      while(rr < maxR && !(rows[rr] && norm(rows[rr][0]).includes('PO:'))) rr++;
+      r = rr; continue;
+    }
+    r++;
+  }
+  return index;
+}
+
 // Parsea la pestaña "Campañas" (tabla plana escrita por azure_to_sheets.py):
 // encabezado Nombre | Estado | Fecha inicio | Fecha fin | Squad/Canal | Presupuesto
 function parseCampaignsTab(rows){
@@ -1128,6 +1170,54 @@ async function refreshPOComments(){
 }
 window.GA_refreshPOComments = refreshPOComments;
 
+// Notas de celda de un mes puntual: {squad -> día -> [{prod, note}]}, ya
+// resueltas cruzando el JSON crudo del Apps Script con CELL_COORD_INDEX (el
+// mapa fila/col -> squad/prod/día armado al sincronizar). Fetch perezoso —
+// solo se pide el mes que el usuario efectivamente está mirando en el
+// evolutivo diario, no los 12 de una — con caché y dedupe de pedidos en vuelo.
+async function ensureNotesForMonth(monthLabel){
+  if(NOTES_CACHE[monthLabel]) return NOTES_CACHE[monthLabel];
+  if(NOTES_FETCH_PROMISES[monthLabel]) return NOTES_FETCH_PROMISES[monthLabel];
+  const coordIndex = CELL_COORD_INDEX[monthLabel];
+  if(!coordIndex) return null; // todavía no sincronizamos ese mes, nada para cruzar
+
+  const promise = (async ()=>{
+    try{
+      const cfg = await loadConfig();
+      if(!cfg || !cfg.appsScriptUrl) return null; // las notas solo se pueden leer vía Apps Script
+      const rawNotes = await fetchNotesViaAppsScript(cfg.appsScriptUrl, monthLabel);
+      const bySquadDay = {};
+      let matched = 0, unmatched = 0;
+      rawNotes.forEach(n=>{
+        const coord = coordIndex[`${n.row-1},${n.col-1}`];
+        if(!coord){ unmatched++; return; } // nota fuera de la grilla de datos (ej. en el encabezado)
+        matched++;
+        bySquadDay[coord.squad] = bySquadDay[coord.squad] || {};
+        bySquadDay[coord.squad][coord.day] = bySquadDay[coord.squad][coord.day] || [];
+        bySquadDay[coord.squad][coord.day].push({ prod: coord.prod, note: n.note });
+      });
+      console.log(`[Bancor Growth] Notas de ${monthLabel}: ${matched} cruzadas con datos, ${unmatched} fuera de la grilla (ignoradas).`);
+      NOTES_CACHE[monthLabel] = bySquadDay;
+      return bySquadDay;
+    }catch(err){
+      console.warn(`[Bancor Growth] No se pudieron leer las notas de "${monthLabel}":`, err && err.message ? err.message : err);
+      return null; // no cacheamos el fallo — el próximo hover/render puede reintentar
+    }finally{
+      delete NOTES_FETCH_PROMISES[monthLabel];
+    }
+  })();
+  NOTES_FETCH_PROMISES[monthLabel] = promise;
+  return promise;
+}
+
+// Notas ya resueltas para un squad+día puntual (requiere que ensureNotesForMonth
+// ya haya corrido para ese mes — si no, devuelve [] sin romper nada).
+function sheetNotesForDay(monthLabel, squad, day){
+  const bySquadDay = NOTES_CACHE[monthLabel];
+  if(!bySquadDay || !bySquadDay[squad] || !bySquadDay[squad][day]) return [];
+  return bySquadDay[squad][day];
+}
+
 
 // Combina Plan Anual + las 12 pestañas mensuales (ya parseadas) en el formato REAL_SEED
 function combineSheetData(planData, monthlyByTab){
@@ -1165,6 +1255,9 @@ let CAMPAIGNS = []; // cargado desde la pestaña "Campañas" del Sheet (Azure De
 let GADS_ASSIGN = {}; // cargado desde la pestaña "Google Ads" del Sheet: id -> {squad, objetivo}
 let MADS_ASSIGN = {}; // cargado desde la pestaña "Meta Ads" del Sheet: id -> {squad}
 let PO_COMMENTS = {}; // cargado desde la pestaña "Comentarios PO" (informe semanal): squad -> [{date, texto, semana}]
+let CELL_COORD_INDEX = {}; // por mes: (fila,col) absolutas -> {squad, prod, day} — para ubicar notas de celda
+let NOTES_CACHE = {}; // por mes: squad -> día -> [{prod, note}] (notas de celda ya resueltas)
+let NOTES_FETCH_PROMISES = {}; // dedupe: evita pedir notas del mismo mes dos veces en simultáneo
 
 /* ---------- HELPERS ---------- */
 function fmtNum(n){
@@ -1347,6 +1440,20 @@ async function fetchViaAppsScript(appsScriptUrl, tabName){
   return text;
 }
 
+// Notas de celda (no CSV, no confundir con fetchViaAppsScript) de una pestaña mensual:
+// [{row, col, note}, ...] 1-indexado. Solo funciona vía Apps Script (el endpoint
+// gviz público y el proxy propio no exponen notas) — si no hay appsScriptUrl
+// configurado, esta función ni se llama.
+async function fetchNotesViaAppsScript(appsScriptUrl, tabName){
+  const sep = appsScriptUrl.includes('?') ? '&' : '?';
+  const url = `${appsScriptUrl}${sep}notes=${encodeURIComponent(tabName)}&_cb=${Date.now()}`;
+  const text = await jsonpFetch(url);
+  if(typeof text !== 'string') throw new Error(`Respuesta inesperada del Apps Script (notas) en "${tabName}".`);
+  if(text.startsWith('ERROR:')) throw new Error(text);
+  try{ return JSON.parse(text); }
+  catch(e){ throw new Error(`El Apps Script no devolvió JSON válido de notas en "${tabName}".`); }
+}
+
 async function fetchTabCSV(sheetId, tabName, appsScriptUrl){
   if(appsScriptUrl){
     return await fetchViaAppsScript(appsScriptUrl, tabName);
@@ -1400,8 +1507,10 @@ async function fetchFromSheet(showToast=true){
     monthResults.forEach((res, idx)=>{
       const m = MONTHS[idx];
       if(res.status === 'fulfilled'){
-        const parsedMonth = parseMonthTab(parseCSV(res.value.csv));
+        const csvRows = parseCSV(res.value.csv);
+        const parsedMonth = parseMonthTab(csvRows);
         monthlyByTab[m] = parsedMonth;
+        CELL_COORD_INDEX[m] = buildCellCoordIndex(csvRows); // para poder ubicar notas de celda de este mes
         const squadsFound = Object.keys(parsedMonth);
         diag(`${m}: ${squadsFound.length ? squadsFound.join(', ') : 'sin bloques (pestaña vacía o no existe)'}`);
       } else {
@@ -1409,6 +1518,7 @@ async function fetchFromSheet(showToast=true){
         diag(`${m}: FALLÓ — ${res.reason && res.reason.message ? res.reason.message : res.reason}`);
       }
     });
+    NOTES_CACHE = {}; // la sync trajo bloques nuevos — invalidamos notas cacheadas de meses viejos
     showDiag();
     const seed = combineSheetData(planData, monthlyByTab);
     DATASET = buildWorkingDataset(seed);
@@ -1823,11 +1933,21 @@ function dailyPointTooltip(seg, series, point){
   }
   if(point.realPct !== null) lines.push(`Cumplido: ${point.realPct.toFixed(0)}% · Objetivo a la fecha: ${point.objPct.toFixed(0)}%`);
 
+  // Notas de celda del Sheet (clic derecho → "Insertar nota"), cargadas ese
+  // mismo día en la fila correspondiente de este squad/producto.
+  const notes = sheetNotesForDay(series.monthLabel, seg, point.day);
+  if(notes.length){
+    lines.push('');
+    notes.forEach(n=> lines.push(`📝 ${n.prod}: "${n.note}"`));
+  }
+
+  // Comentarios de PO del informe semanal (distinto origen: se cargan en el
+  // modal de "Generar informe", no son notas de celda).
   const year = new Date(2026, series.monthIdx, 1).getFullYear();
   const comments = poCommentsForDay(seg, year, series.monthIdx, point.day);
   if(comments.length){
     lines.push('');
-    comments.forEach(c=> lines.push(`💬 PO: "${c.texto}"`));
+    comments.forEach(c=> lines.push(`💬 PO (informe semanal): "${c.texto}"`));
   }
   return lines.join('\n');
 }
@@ -1857,16 +1977,18 @@ function renderDailyBody(seg, productFilter){
   const { svg, w, h, x, y } = dailyChartSVG(series, color);
 
   // Un punto interactivo por cada día con carga (línea de Cumplido): al pasar el
-  // mouse muestra la cantidad real de ese día y, si el PO cargó un comentario ese
-  // mismo día, lo suma al tooltip. Los días con comentario quedan marcados con un
-  // punto lavanda visible aunque no se esté haciendo hover.
+  // mouse muestra la cantidad real de ese día, las notas de celda del Sheet
+  // (clic derecho → "Insertar nota") de ese día, y los comentarios de PO del
+  // informe semanal. Los días con alguna de las dos anotaciones quedan
+  // marcados con un punto lavanda visible aunque no se esté haciendo hover.
   const pointsHtml = series.points.filter(p=>p.realPct!==null).map(p=>{
     const leftPct = (x(p.day)/w*100).toFixed(2);
     const topPct = (y(p.realPct)/h*100).toFixed(2);
     const year = new Date(2026, series.monthIdx, 1).getFullYear();
-    const hasComment = poCommentsForDay(seg, year, series.monthIdx, p.day).length > 0;
+    const hasAnnotation = poCommentsForDay(seg, year, series.monthIdx, p.day).length > 0
+      || sheetNotesForDay(series.monthLabel, seg, p.day).length > 0;
     const tipClass = leftPct > 75 ? 'tip-right' : '';
-    return `<div class="ev-point has-tip ${tipClass} ${hasComment?'has-comment':''}" style="left:${leftPct}%; top:${topPct}%;" data-tip="${escAttr(dailyPointTooltip(seg, series, p))}"></div>`;
+    return `<div class="ev-point has-tip ${tipClass} ${hasAnnotation?'has-comment':''}" data-day="${p.day}" style="left:${leftPct}%; top:${topPct}%;" data-tip="${escAttr(dailyPointTooltip(seg, series, p))}"></div>`;
   }).join('');
 
   body.innerHTML = `
@@ -1879,10 +2001,21 @@ function renderDailyBody(seg, productFilter){
       <div style="font-family:var(--font-mono); font-size:10.5px; color:var(--ink-500); display:flex; align-items:center; gap:14px;">
         <span><span style="display:inline-block; width:10px; height:2px; background:var(--ink-300); vertical-align:middle; margin-right:4px;"></span>Objetivo</span>
         <span><span style="display:inline-block; width:10px; height:2px; background:${color}; vertical-align:middle; margin-right:4px;"></span>Cumplido</span>
-        <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--lavender-fill); vertical-align:middle; margin-right:4px;"></span>Con comentario de PO</span>
-        <span class="ev-info-icon has-tip tip-right" data-tip="Pasá el mouse sobre cualquier día de la línea sólida (Cumplido) para ver la cantidad real acumulada ese día y, si el PO cargó un comentario esa fecha, lo vas a ver ahí mismo.">ⓘ</span>
+        <span><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--lavender-fill); vertical-align:middle; margin-right:4px;"></span>Con nota/comentario</span>
+        <span class="ev-info-icon has-tip tip-right" data-tip="Pasá el mouse sobre cualquier día de la línea sólida (Cumplido) para ver la cantidad real acumulada. 📝 = nota de celda del Sheet ese día. 💬 = comentario de PO cargado en el informe semanal.">ⓘ</span>
       </div>
     </div>`;
+
+  // Fetch perezoso de las notas de este mes (si todavía no están en caché): al
+  // resolver, si seguís mirando el mismo squad/mes/vista, se vuelve a renderizar
+  // este mismo panel ya con las notas incluidas en los tooltips y los puntos.
+  if(!NOTES_CACHE[series.monthLabel]){
+    ensureNotesForMonth(series.monthLabel).then(result=>{
+      if(!result) return;
+      const stillSameView = ACTIVE_SEGMENT === seg && EVOLUTIVO_VIEW[seg] === 'diario' && SELECTED_MONTH_IDX === series.monthIdx;
+      if(stillSameView) renderDailyBody(seg, productFilter);
+    });
+  }
 }
 
 function renderEvolutivoBody(seg, productFilter){
