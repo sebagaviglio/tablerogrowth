@@ -10,6 +10,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assistant-widget.css">
 <script src="assistant-widget.js"></script>
+<link rel="stylesheet" href="report.css">
+<script src="report.js"></script>
 <style>
   :root{
     /* superficies */
@@ -370,6 +372,12 @@
   .refresh-btn:hover{ background: var(--teal-700); }
   .refresh-btn svg{ width:14px; height:14px; }
   .refresh-btn.loading svg{ animation: spin 1s linear infinite; }
+  .icon-btn.loading svg{ animation: spin 1s linear infinite; }
+  .settings-link{
+    font-family: var(--font-mono); font-size:11px; color: var(--ink-300); text-decoration:none;
+    cursor:pointer; display:inline-flex; align-items:center; gap:4px;
+  }
+  .settings-link:hover{ color: var(--ink-500); }
   @keyframes spin{ to{ transform: rotate(360deg); } }
   .demo-flag{
     background: rgba(148,102,0,0.10); color: var(--gold-ink); border:1px solid rgba(148,102,0,0.3);
@@ -466,9 +474,13 @@
     </div>
     <div class="header-right">
       <select id="month-select" class="month-select has-tip" data-tip="Elegí qué mes mirar. Al entrar siempre arranca en el mes calendario actual, tenga o no datos cargados todavía."></select>
+      <button id="report-launch-btn" title="Generar el informe semanal para Dirección (Bancor + Bezza)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6M9 9h1"/></svg>
+        Generar informe
+      </button>
       <div class="clock"><span class="dot"></span><span id="clock-text">--:--:--</span></div>
-      <div class="icon-btn" id="settings-btn" title="Conectar Google Sheet">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      <div class="icon-btn" id="header-refresh-btn" title="Actualizar datos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
       </div>
     </div>
   </header>
@@ -509,7 +521,7 @@
     <div class="card-grid" id="card-grid"></div>
     <div class="insights-panel">
       <h3><span class="lime-dot"></span>Growth Insights <span id="insights-title-squad" style="color:var(--ink-500); font-weight:400; font-size:13px;"></span></h3>
-      <div class="sub has-tip tip-right" data-tip="Se generan comparando el ritmo (real ÷ objetivo prorrateado) de cada producto: ▲ oportunidad si ritmo ≥ 110%, ▼ atención si ritmo ≤ 85%. Ordenados por magnitud de la desviación.">Lecturas automáticas de la evolución + comentarios del equipo ⓘ</div>
+      <div class="sub has-tip tip-right" data-tip="Se generan comparando el ritmo del mes elegido (real de ese mes ÷ objetivo prorrateado a los días con carga) de cada producto: ▲ oportunidad si ritmo ≥ 115%, ▼ atención si ritmo ≤ 70%. Ordenados por magnitud de la desviación.">Lecturas automáticas de la evolución + comentarios del equipo ⓘ</div>
       <div id="insights-feed"></div>
     </div>
   </div>
@@ -575,6 +587,8 @@
       <span>Última actualización: <b id="last-sync" style="color:var(--ink-900);">—</b></span>
       <span>·</span>
       <span>Próximo chequeo automático: hoy 20:00 (mientras esta pestaña permanezca abierta)</span>
+      <span>·</span>
+      <span class="settings-link" id="settings-link">⚙ Configuración</span>
     </div>
     <button class="refresh-btn" id="refresh-btn">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
@@ -658,13 +672,26 @@ const CURRENT_MONTH_IDX = new Date().getMonth(); // mes real de hoy, no cambia c
 
 function populateMonthSelect(){
   const sel = document.getElementById('month-select');
-  if(!sel || sel.options.length) return; // ya poblado
-  MONTHS.forEach((m, idx)=>{
-    const opt = document.createElement('option');
-    opt.value = idx;
-    opt.textContent = `${m} 2026`;
-    sel.appendChild(opt);
-  });
+  if(!sel) return;
+
+  // Ene-Jun solo se muestran si de verdad tienen carga real en algún producto
+  // (se borraron esas pestañas del Sheet al arrancar la medición en julio, pero
+  // dejamos la puerta abierta por si en algún momento se cargara historia vieja).
+  // Jul en adelante siempre se muestran, tengan o no datos todavía.
+  const hasDataForMonth = (idx)=> Object.values(DATASET).some(sq=>
+    Object.values(sq.products).some(p=> p.real[idx]!==null && p.real[idx]!==undefined)
+  );
+  const visibleMonths = MONTHS.map((m,idx)=>idx).filter(idx => idx>=6 || hasDataForMonth(idx));
+  const desiredHTML = visibleMonths.map(idx=>`<option value="${idx}">${MONTHS[idx]} 2026</option>`).join('');
+
+  // Solo tocamos el DOM si la lista de meses visibles realmente cambió — evita
+  // reconstruir el <select> (y perder el foco/selección) en cada render.
+  if(sel.dataset.optionsSig !== desiredHTML){
+    sel.innerHTML = desiredHTML;
+    sel.dataset.optionsSig = desiredHTML;
+  }
+
+  if(!visibleMonths.includes(SELECTED_MONTH_IDX)) SELECTED_MONTH_IDX = CURRENT_MONTH_IDX;
   sel.value = SELECTED_MONTH_IDX;
   sel.onchange = ()=>{
     SELECTED_MONTH_IDX = parseInt(sel.value, 10);
@@ -1340,14 +1367,20 @@ function computeInsights(squadFilter){
     if(squadFilter && squad !== squadFilter) return;
     Object.keys(DATASET[squad].products).forEach(prod=>{
       const d = DATASET[squad].products[prod];
-      if(d.ritmo === null){
+      // Ritmo del MES ELEGIDO (prorrateado a los días con carga ese mes) — no el
+      // acumulado del año entero, que podía mostrar "todo bien" mirando agosto
+      // con datos que en realidad venían de julio. Se usa solo para DETECTAR la
+      // señal; el texto no repite el % para no contradecir el badge simple de
+      // la tarjeta (que es acumulado ÷ meta completa, sin prorratear).
+      const paceRitmo = productMonthRitmo(d, SELECTED_MONTH_IDX);
+      if(paceRitmo === null){
         noData.push({seg:squad, prod, kpi:d.kpi});
         return;
       }
-      if(d.ritmo >= 1.10){
-        items.push({type:'positive', seg:squad, prod, text:`${prod} va ${pct(d.ritmo-1)} por encima del objetivo prorrateado a la fecha (${d.kpi}).`, mag: d.ritmo-1});
-      } else if(d.ritmo <= 0.85){
-        items.push({type:'negative', seg:squad, prod, text:`${prod} está ${pct(1-d.ritmo)} por debajo del ritmo esperado a esta altura del mes (${d.kpi}).`, mag: 1-d.ritmo});
+      if(paceRitmo >= 1.15){
+        items.push({type:'positive', seg:squad, prod, text:`${prod} viene por encima del ritmo esperado para esta altura de ${MONTHS[SELECTED_MONTH_IDX]} (${d.kpi}).`, mag: paceRitmo-1});
+      } else if(paceRitmo <= 0.70){
+        items.push({type:'negative', seg:squad, prod, text:`${prod} viene por debajo del ritmo esperado para esta altura de ${MONTHS[SELECTED_MONTH_IDX]} (${d.kpi}).`, mag: 1-paceRitmo});
       }
     });
   });
@@ -1824,7 +1857,7 @@ function renderHero(){
       <div class="hl-icon">ⓘ</div>
       <div class="hl-body">
         <div class="hl-tag">Dato destacado</div>
-        <div class="hl-text">Todos los productos con carga están dentro del rango esperado (entre 85% y 110% de ritmo).</div>
+        <div class="hl-text">Todos los productos con carga están dentro del ritmo esperado para ${MONTHS[SELECTED_MONTH_IDX]}.</div>
       </div>`;
   }
 
@@ -2310,7 +2343,7 @@ function renderPaidMedia(loadingOnly){
 /* ---------- CLOCK + AUTO-CHECK ---------- */
 function updateClock(){
   const now = new Date();
-  document.getElementById('clock-text').textContent = now.toLocaleTimeString('es-AR');
+  document.getElementById('clock-text').textContent = now.toLocaleTimeString('es-AR', {hour12:false});
 }
 let lastAutoCheckDate = null;
 async function autoCheckLoop(){
@@ -2372,7 +2405,7 @@ async function init(){
     fetchFromSheet(false);
   }
 
-  document.getElementById('settings-btn').onclick = ()=> document.getElementById('settings-overlay').classList.add('open');
+  document.getElementById('settings-link').onclick = ()=> document.getElementById('settings-overlay').classList.add('open');
   const campToggleRow = document.getElementById('campaigns-toggle-row');
   if(campToggleRow) campToggleRow.onclick = toggleCampaignsPanel;
   const pmToggleRow = document.getElementById('paidmedia-toggle-row');
@@ -2415,9 +2448,8 @@ async function init(){
     toast('Volviste a los datos de ejemplo.');
   };
 
-  document.getElementById('refresh-btn').onclick = async (e)=>{
-    const btn = e.currentTarget;
-    btn.classList.add('loading');
+  async function runFullSync(btn){
+    if(btn) btn.classList.add('loading');
     await syncPaidMediaToSheet(SELECTED_MONTH_IDX); // corre antes: si es el primer sync, crea la pestaña "Google Ads" recién ahí
     await syncMetaMediaToSheet(SELECTED_MONTH_IDX); // ídem, crea "Meta Ads" recién ahí
     await Promise.all([
@@ -2426,8 +2458,12 @@ async function init(){
       fetchMetaMedia(SELECTED_MONTH_IDX, true)
     ]);
     document.getElementById('last-sync').textContent = new Date().toLocaleString('es-AR');
-    btn.classList.remove('loading');
-  };
+    if(btn) btn.classList.remove('loading');
+  }
+
+  document.getElementById('refresh-btn').onclick = (e)=> runFullSync(e.currentTarget);
+  const headerRefreshBtn = document.getElementById('header-refresh-btn');
+  if(headerRefreshBtn) headerRefreshBtn.onclick = (e)=> runFullSync(e.currentTarget);
 }
 
 /* ---------- AMBIENT PARTICLE BACKGROUND ---------- */
