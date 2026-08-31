@@ -1966,12 +1966,15 @@ function computeDailySeries(seg, productFilter){
     const breakdown = [];
     products.forEach((p,i)=>{
       const v = p.dailyByMonth[monthLabel][d-1];
-      if(v !== null && v !== undefined){ runningSums[i] += v; }
+      const snapshot = isSnapshotKpi(p.kpi);
+      if(v !== null && v !== undefined){
+        runningSums[i] = snapshot ? v : runningSums[i] + v; // foto: reemplaza, no acumula
+      }
       // Tope defensivo: un solo producto con una meta mal cargada (ej. casi
       // cero) no debería poder disparar el promedio del squad a miles de
       // puntos porcentuales. 500% ya es "muy por encima", no hace falta más.
       realPcts.push(Math.min(500, runningSums[i] / p.plan[monthIdx] * 100));
-      breakdown.push({ name: p.name || null, kpi: p.kpi, dayValue: (v!==null && v!==undefined) ? v : null, cumAbs: runningSums[i], target: p.plan[monthIdx] });
+      breakdown.push({ name: p.name || null, kpi: p.kpi, dayValue: (v!==null && v!==undefined) ? v : null, cumAbs: runningSums[i], target: p.plan[monthIdx], snapshot });
     });
     const objPct = (d / daysInMonthCount) * 100;
     const realPct = realPcts.reduce((a,b)=>a+b,0) / realPcts.length;
@@ -2019,12 +2022,19 @@ function dailyPointTooltip(seg, series, point){
 
   if(point.breakdown.length === 1){
     const b = point.breakdown[0];
-    lines.push(`${b.name}: ${fmtInt(b.cumAbs)} acumulado (${b.kpi})`);
-    if(b.dayValue !== null) lines.push(`Carga de ese día: +${fmtInt(b.dayValue)}`);
+    if(b.snapshot){
+      lines.push(`${b.name}: ${fmtInt(b.cumAbs)} — valor del día (${b.kpi}, no se acumula día a día)`);
+    } else {
+      lines.push(`${b.name}: ${fmtInt(b.cumAbs)} acumulado (${b.kpi})`);
+      if(b.dayValue !== null) lines.push(`Carga de ese día: +${fmtInt(b.dayValue)}`);
+    }
   } else {
     point.breakdown.forEach(b=>{
       const pctStr = (b.target && b.target>0) ? ` — ${(b.cumAbs/b.target*100).toFixed(0)}% de ${fmtInt(b.target)}` : ' — meta del mes no definida o en cero';
-      lines.push(`${b.name}: ${fmtInt(b.cumAbs)} acum.${b.dayValue!==null ? ` (+${fmtInt(b.dayValue)} ese día)` : ''}${pctStr}`);
+      const valLabel = b.snapshot
+        ? `${fmtInt(b.cumAbs)} (valor del día, no acumula)`
+        : `${fmtInt(b.cumAbs)} acum.${b.dayValue!==null ? ` (+${fmtInt(b.dayValue)} ese día)` : ''}`;
+      lines.push(`${b.name}: ${valLabel}${pctStr}`);
     });
   }
   if(point.realPct !== null) lines.push(`Cumplido: ${point.realPct.toFixed(0)}% · Objetivo a la fecha: ${point.objPct.toFixed(0)}%`);
@@ -2181,13 +2191,27 @@ function renderEvolutivo(seg){
 // Ritmo de un producto para UN mes puntual (no el acumulado del año) — usa los
 // valores día a día de ese mes específico. Si ese mes no tiene ningún día cargado
 // todavía, devuelve null (no cuenta como "cumplido" solo porque otro mes venía bien).
+// Algunos KPIs son una "foto" de un momento (usuarios activos, DAU, MAU, saldo)
+// y NO se deben sumar día a día como si fueran altas o transacciones — sumar
+// "usuarios activos" de varios días cuenta a la misma persona una y otra vez.
+// Para estos, el valor a la fecha es el ÚLTIMO cargado, no una suma acumulada.
+function isSnapshotKpi(kpi){
+  return /activ|\bDAU\b|\bMAU\b|stock|saldo/i.test(kpi || '');
+}
+
 function productMonthRitmo(p, monthIdx){
   const monthLabel = MONTHS[monthIdx];
   const daily = p.dailyByMonth ? p.dailyByMonth[monthLabel] : null;
   const target = p.plan[monthIdx];
   if(!daily || target===null || target===undefined || target<=0) return null;
+  const snapshot = isSnapshotKpi(p.kpi);
   let asOfDay=0, sum=0;
-  daily.forEach((v,i)=>{ if(v!==null && v!==undefined){ sum+=v; asOfDay=i+1; } });
+  daily.forEach((v,i)=>{
+    if(v!==null && v!==undefined){
+      sum = snapshot ? v : sum + v; // foto: se reemplaza por el último valor, no se acumula
+      asOfDay=i+1;
+    }
+  });
   if(asOfDay===0) return null;
   const proratedTarget = target * (asOfDay/DAYS_IN_MONTH[monthIdx]);
   return proratedTarget>0 ? sum/proratedTarget : null;
