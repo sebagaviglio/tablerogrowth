@@ -357,6 +357,25 @@
   .campaign-card .cc-interp-main{ font-size:12.5px; line-height:1.55; color: var(--ink-900); }
   .cp-empty{ font-size:12.5px; color: var(--ink-500); padding: 6px 0; }
 
+  /* ---------- WIKI TABLEROS (Power BI por squad) ---------- */
+  .tableros-panel{
+    background: var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:18px 20px; margin-bottom:18px; box-shadow: var(--shadow-sm);
+  }
+  .tableros-panel .cp-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
+  .tableros-panel h4{ font-family: var(--font-display); font-size:14px; font-weight:600; color:var(--ink-900); }
+  .tableros-panel .cp-sub{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-500); }
+  .tableros-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
+  .tablero-card{
+    background: var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px;
+    transition: all .25s ease; box-shadow: var(--shadow-sm); text-decoration:none; display:block;
+  }
+  .tablero-card:hover{ transform: translateY(-3px); border-color: var(--teal-500); box-shadow: var(--shadow-md); }
+  .tablero-card .tc-kpi-tag{ font-family: var(--font-mono); font-size:10px; font-weight:600; color: var(--teal-ink); letter-spacing:0.4px; margin-bottom:6px; display:inline-block; }
+  .tablero-card .tc-title{ font-family: var(--font-display); font-size:13.5px; font-weight:600; color: var(--ink-900); line-height:1.3; margin-bottom:6px; display:flex; align-items:center; gap:6px; }
+  .tablero-card .tc-title .tc-ext{ font-size:11px; color: var(--ink-300); }
+  .tablero-card .tc-funcion{ font-size:12.5px; line-height:1.55; color: var(--ink-500); }
+
   /* ---------- INSIGHTS FEED ---------- */
   .insights-panel{
     background: var(--surface); border:1px solid var(--border); border-radius:18px; padding:20px;
@@ -558,6 +577,21 @@
       </div>
     </div>
     <div id="campaigns-groups"></div>
+  </div>
+
+  <!-- WIKI TABLEROS (Power BI por squad) -->
+  <div class="tableros-panel">
+    <div class="cp-head collapsible-head" id="tableros-toggle-row">
+      <div>
+        <h4>Tableros del squad</h4>
+        <div class="cp-sub" id="tableros-subtitle">Fuente: Google Sheet · Wiki Tableros</div>
+      </div>
+      <div class="panel-toggle-area">
+        <span class="panel-count-badge" id="tableros-count-badge">—</span>
+        <span class="panel-chevron" id="tableros-chevron">▸</span>
+      </div>
+    </div>
+    <div id="tableros-groups"></div>
   </div>
 
   <!-- PAID MEDIA (Google Ads) -->
@@ -988,6 +1022,38 @@ function parseCampaignsTab(rows){
   return out;
 }
 
+// Pestaña "Wiki Tableros" del Sheet: directorio de tableros de Power BI que usa
+// cada squad para sus propias mediciones. Columnas: Squad | Tablero | Función | KPI | Link.
+// Si el squad cargado no matchea ninguno de los 4 squads conocidos, se descarta
+// (mapAreaPathToSquad ya devuelve null en ese caso, igual que con Campañas).
+function parseTablerosTab(rows){
+  if(!rows || !rows.length) return [];
+  const header = rows[0].map(h => norm(h).toLowerCase());
+  const idx = {
+    squad: header.findIndex(h => h === 'squad'),
+    tablero: header.findIndex(h => h.startsWith('tablero')),
+    funcion: header.findIndex(h => h.startsWith('función') || h.startsWith('funcion')),
+    kpi: header.findIndex(h => h.startsWith('kpi')),
+    link: header.findIndex(h => h.startsWith('link')),
+  };
+  const out = [];
+  for(let r=1; r<rows.length; r++){
+    const row = rows[r]; if(!row) continue;
+    const tablero = idx.tablero>=0 ? norm(row[idx.tablero]) : '';
+    if(!tablero) continue;
+    const squad = mapAreaPathToSquad(idx.squad>=0 ? row[idx.squad] : '');
+    if(!squad) continue; // squad no reconocido -> no se muestra
+    out.push({
+      squad,
+      tablero,
+      funcion: idx.funcion>=0 ? norm(row[idx.funcion]) : '',
+      kpi: idx.kpi>=0 ? norm(row[idx.kpi]) : '',
+      link: idx.link>=0 ? norm(row[idx.link]) : '',
+    });
+  }
+  return out;
+}
+
 // Pestaña "Google Ads": la escribe sola el proxy (api/google-ads-sheet-sync.js)
 // con ID/Nombre/Cuenta/Estado/Gasto/CPA recalculados en cada sync, y el equipo
 // carga a mano las columnas Squad y Objetivo directo en el Sheet (nunca se pisan
@@ -1252,6 +1318,7 @@ let DATASET = {};
 let ACTIVE_SEGMENT = null;
 let isDemo = true;
 let CAMPAIGNS = []; // cargado desde la pestaña "Campañas" del Sheet (Azure DevOps)
+let TABLEROS = []; // cargado desde la pestaña "Wiki Tableros" del Sheet (directorio Power BI por squad)
 let GADS_ASSIGN = {}; // cargado desde la pestaña "Google Ads" del Sheet: id -> {squad, objetivo}
 let MADS_ASSIGN = {}; // cargado desde la pestaña "Meta Ads" del Sheet: id -> {squad}
 let PO_COMMENTS = {}; // cargado desde la pestaña "Comentarios PO" (informe semanal): squad -> [{date, texto, semana}]
@@ -1536,6 +1603,18 @@ async function fetchFromSheet(showToast=true){
       diag(`Campañas: sin datos todavía (${campErr && campErr.message ? campErr.message : campErr})`);
     }
 
+    // Pestaña "Wiki Tableros": directorio de tableros de Power BI por squad — opcional
+    // y separada del resto, igual criterio que Campañas: si no existe todavía, no
+    // rompe la sincronización principal, solo queda TABLEROS vacío.
+    try{
+      const tablerosCSV = await fetchTabCSV(cfg.sheetId, 'Wiki Tableros', cfg.appsScriptUrl);
+      TABLEROS = parseTablerosTab(parseCSV(tablerosCSV));
+      diag(`Wiki Tableros OK — ${TABLEROS.length} tableros`);
+    }catch(tabErr){
+      TABLEROS = [];
+      diag(`Wiki Tableros: sin datos todavía (${tabErr && tabErr.message ? tabErr.message : tabErr})`);
+    }
+
     // Pestaña "Google Ads": igual de opcional — el proxy la crea sola en el primer sync.
     // Si todavía no existe, no rompe nada, el panel de Paid Media sigue mostrando
     // gasto/CPA en vivo, solo sin squad ni ritmo hasta que exista.
@@ -1573,7 +1652,7 @@ async function fetchFromSheet(showToast=true){
       diag(`Comentarios PO: sin datos todavía (${commentsErr && commentsErr.message ? commentsErr.message : commentsErr})`);
     }
 
-    await saveCache({seed, campaigns: CAMPAIGNS, googleAdsAssign: GADS_ASSIGN, metaAdsAssign: MADS_ASSIGN, poComments: PO_COMMENTS, fetchedAt: new Date().toISOString()});
+    await saveCache({seed, campaigns: CAMPAIGNS, tableros: TABLEROS, googleAdsAssign: GADS_ASSIGN, metaAdsAssign: MADS_ASSIGN, poComments: PO_COMMENTS, fetchedAt: new Date().toISOString()});
     if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
     renderAll();
     renderPaidMedia();
@@ -2292,12 +2371,62 @@ function renderCampaigns(){
     </div>`).join('')}</div>`;
 }
 
+let TABLEROS_COLLAPSED = true; // colapsado por default
+
+function toggleTablerosPanel(){
+  TABLEROS_COLLAPSED = !TABLEROS_COLLAPSED;
+  renderTableros();
+}
+
+function renderTableros(){
+  const wrap = document.getElementById('tableros-groups');
+  const sub = document.getElementById('tableros-subtitle');
+  const countBadge = document.getElementById('tableros-count-badge');
+  const chevron = document.getElementById('tableros-chevron');
+  if(!wrap) return;
+
+  wrap.style.display = TABLEROS_COLLAPSED ? 'none' : 'block';
+  if(chevron) chevron.classList.toggle('open', !TABLEROS_COLLAPSED);
+
+  // Directorio de referencia, no tiene corte mensual — no se gatea por
+  // SELECTED_MONTH_IDX como Campañas, se filtra solo por squad activo.
+  const tabsDelSquad = TABLEROS.filter(t => t.squad === ACTIVE_SEGMENT);
+
+  if(countBadge){
+    countBadge.textContent = `${tabsDelSquad.length} tablero${tabsDelSquad.length===1?'':'s'}`;
+  }
+
+  if(TABLEROS_COLLAPSED) return;
+
+  if(sub) sub.textContent = `Fuente: Google Sheet · Wiki Tableros · squad activo: ${ACTIVE_SEGMENT || '—'}`;
+
+  if(!TABLEROS.length){
+    wrap.innerHTML = `<div class="cp-empty">Todavía no hay datos de la pestaña "Wiki Tableros" del Sheet.</div>`;
+    return;
+  }
+
+  if(!tabsDelSquad.length){
+    wrap.innerHTML = `<div class="cp-empty">No hay tableros cargados para el squad "${ACTIVE_SEGMENT}".</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `<div class="tableros-grid">${tabsDelSquad.map(t=>{
+    const card = `
+      <div class="tc-kpi-tag">${t.kpi || 'KPI sin definir'}</div>
+      <div class="tc-title">${t.tablero || '(sin nombre)'}${t.link ? ' <span class="tc-ext">↗</span>' : ''}</div>
+      <div class="tc-funcion">${t.funcion || '<span class="cp-empty" style="padding:0;">Sin función cargada todavía.</span>'}</div>`;
+    return t.link
+      ? `<a class="tablero-card" href="${t.link}" target="_blank" rel="noopener noreferrer">${card}</a>`
+      : `<div class="tablero-card">${card}</div>`;
+  }).join('')}</div>`;
+}
+
 function renderAll(){
   if(!ACTIVE_SEGMENT || !DATASET[ACTIVE_SEGMENT]) ACTIVE_SEGMENT = Object.keys(DATASET)[0];
   populateMonthSelect();
   const steps = [
     ['hero', renderHero], ['tabs', renderTabs], ['resumen de squad', renderSquadSummary],
-    ['tarjetas', renderCards], ['insights', renderInsights], ['campañas', renderCampaigns]
+    ['tarjetas', renderCards], ['insights', renderInsights], ['campañas', renderCampaigns], ['tableros', renderTableros]
   ];
   steps.forEach(([name, fn])=>{
     try{ fn(); }catch(e){ console.error(`[Bancor Growth] error en ${name}:`, e); }
@@ -2707,6 +2836,7 @@ async function init(){
     if(cache && cache.seed){
       DATASET = buildWorkingDataset(cache.seed); isDemo = false; ACTIVE_SEGMENT = Object.keys(DATASET)[0];
       CAMPAIGNS = cache.campaigns || [];
+      TABLEROS = cache.tableros || [];
       GADS_ASSIGN = cache.googleAdsAssign || {};
       MADS_ASSIGN = cache.metaAdsAssign || {};
       // Revivir los Date (JSON.stringify los guardó como string ISO) y normalizar
@@ -2731,6 +2861,8 @@ async function init(){
   document.getElementById('settings-link').onclick = ()=> document.getElementById('settings-overlay').classList.add('open');
   const campToggleRow = document.getElementById('campaigns-toggle-row');
   if(campToggleRow) campToggleRow.onclick = toggleCampaignsPanel;
+  const tabToggleRow = document.getElementById('tableros-toggle-row');
+  if(tabToggleRow) tabToggleRow.onclick = toggleTablerosPanel;
   const pmToggleRow = document.getElementById('paidmedia-toggle-row');
   if(pmToggleRow) pmToggleRow.onclick = togglePaidMediaPanel;
   const mmToggleRow = document.getElementById('metamedia-toggle-row');
