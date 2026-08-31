@@ -1943,7 +1943,7 @@ function computeDailySeries(seg, productFilter){
   let products;
   if(!productFilter || productFilter === '__squad__'){
     products = Object.entries(sq.products)
-      .filter(([, p]) => p.dailyByMonth[monthLabel] && p.plan[monthIdx] !== null && p.plan[monthIdx] !== undefined && p.plan[monthIdx] > 0)
+      .filter(([, p]) => p.dailyByMonth[monthLabel] && p.plan[monthIdx] !== null && p.plan[monthIdx] !== undefined && p.plan[monthIdx] >= 1)
       .map(([name, p]) => ({ ...p, name }));
   } else {
     const p = sq.products[productFilter];
@@ -1967,8 +1967,11 @@ function computeDailySeries(seg, productFilter){
     products.forEach((p,i)=>{
       const v = p.dailyByMonth[monthLabel][d-1];
       if(v !== null && v !== undefined){ runningSums[i] += v; }
-      realPcts.push(runningSums[i] / p.plan[monthIdx] * 100);
-      breakdown.push({ name: p.name || null, kpi: p.kpi, dayValue: (v!==null && v!==undefined) ? v : null, cumAbs: runningSums[i] });
+      // Tope defensivo: un solo producto con una meta mal cargada (ej. casi
+      // cero) no debería poder disparar el promedio del squad a miles de
+      // puntos porcentuales. 500% ya es "muy por encima", no hace falta más.
+      realPcts.push(Math.min(500, runningSums[i] / p.plan[monthIdx] * 100));
+      breakdown.push({ name: p.name || null, kpi: p.kpi, dayValue: (v!==null && v!==undefined) ? v : null, cumAbs: runningSums[i], target: p.plan[monthIdx] });
     });
     const objPct = (d / daysInMonthCount) * 100;
     const realPct = realPcts.reduce((a,b)=>a+b,0) / realPcts.length;
@@ -2020,7 +2023,8 @@ function dailyPointTooltip(seg, series, point){
     if(b.dayValue !== null) lines.push(`Carga de ese día: +${fmtInt(b.dayValue)}`);
   } else {
     point.breakdown.forEach(b=>{
-      lines.push(`${b.name}: ${fmtInt(b.cumAbs)} acum.${b.dayValue!==null ? ` (+${fmtInt(b.dayValue)} ese día)` : ''}`);
+      const pctStr = (b.target && b.target>0) ? ` — ${(b.cumAbs/b.target*100).toFixed(0)}% de ${fmtInt(b.target)}` : ' — meta del mes no definida o en cero';
+      lines.push(`${b.name}: ${fmtInt(b.cumAbs)} acum.${b.dayValue!==null ? ` (+${fmtInt(b.dayValue)} ese día)` : ''}${pctStr}`);
     });
   }
   if(point.realPct !== null) lines.push(`Cumplido: ${point.realPct.toFixed(0)}% · Objetivo a la fecha: ${point.objPct.toFixed(0)}%`);
