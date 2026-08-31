@@ -314,20 +314,22 @@ async function getBaseContext() {
     coreError = String(err.message || err);
   }
 
-  // "Campañas", "Equipo", "Google Ads" y "Meta Ads" son un plus: si fallan, seguimos igual con el resto.
+  // "Campañas", "Equipo", "Google Ads", "Meta Ads" y "Wiki Tableros" son un plus: si fallan, seguimos igual con el resto.
   let campaignsCsv = null, campaignsError = null;
   let equipoCsv = null, equipoError = null;
   let googleAdsCsv = null, googleAdsError = null;
   let metaAdsCsv = null, metaAdsError = null;
+  let wikiTablerosCsv = null, wikiTablerosError = null;
   await Promise.all([
     fetchTab('Campañas').then((csv) => { campaignsCsv = csv.slice(0, 6000); }).catch((err) => { campaignsError = String(err.message || err); }),
     fetchTab('Equipo').then((csv) => { equipoCsv = csv.slice(0, 3000); }).catch((err) => { equipoError = String(err.message || err); }),
     fetchTab('Google Ads').then((csv) => { googleAdsCsv = csv.slice(0, 4000); }).catch((err) => { googleAdsError = String(err.message || err); }),
-    fetchTab('Meta Ads').then((csv) => { metaAdsCsv = csv.slice(0, 4000); }).catch((err) => { metaAdsError = String(err.message || err); })
+    fetchTab('Meta Ads').then((csv) => { metaAdsCsv = csv.slice(0, 4000); }).catch((err) => { metaAdsError = String(err.message || err); }),
+    fetchTab('Wiki Tableros').then((csv) => { wikiTablerosCsv = csv.slice(0, 4000); }).catch((err) => { wikiTablerosError = String(err.message || err); })
   ]);
 
   if (coreError) {
-    return { planAnualCsv: null, monthCsv: null, currentMonthTab, campaignsCsv, campaignsError, equipoCsv, equipoError, googleAdsCsv, googleAdsError, metaAdsCsv, metaAdsError, fetchedAt: new Date().toISOString(), error: coreError };
+    return { planAnualCsv: null, monthCsv: null, currentMonthTab, campaignsCsv, campaignsError, equipoCsv, equipoError, googleAdsCsv, googleAdsError, metaAdsCsv, metaAdsError, wikiTablerosCsv, wikiTablerosError, fetchedAt: new Date().toISOString(), error: coreError };
   }
 
   const payload = {
@@ -342,6 +344,8 @@ async function getBaseContext() {
     googleAdsError,
     metaAdsCsv,
     metaAdsError,
+    wikiTablerosCsv,
+    wikiTablerosError,
     fetchedAt: new Date().toISOString()
   };
   baseCache = { payload, fetchedAt: now };
@@ -695,6 +699,20 @@ function buildSystemPrompt(liveContext, insightsBlock, adsHistoryBlock) {
         ? `\n(No se pudo leer la pestaña "Meta Ads" en este momento: ${liveContext.metaAdsError}. Si preguntan por gasto en Meta, avisá que no lo tenés disponible ahora.)`
         : '';
 
+    const wikiTablerosBlock = liveContext.wikiTablerosCsv
+      ? `\n--- Pestaña "Wiki Tableros" (directorio de tableros de Power BI por squad) ---\n${liveContext.wikiTablerosCsv}\n\nCómo leer "Wiki Tableros": columnas Squad | Tablero | Función | KPI | Link. Es un
+  directorio de referencia — no tiene corte mensual ni datos numéricos propios,
+  solo dice en qué tablero externo de Power BI puede encontrar cada squad un
+  KPI o función determinada. Usalo cuando te pregunten "¿dónde veo X?", "¿en
+  qué tablero está Y?", o algo similar: buscá por KPI/función/squad y decí el
+  nombre del tablero y su Link (si lo tiene). No estás limitado al squad que
+  esté mirando la persona en el tablero — buscá en las 4 filas de todos los
+  squads si hace falta. Si nadie cargó un tablero para lo que te preguntan, decilo
+  en vez de inventar un nombre de tablero o un link que no esté en esta lista.`
+      : liveContext.wikiTablerosError
+        ? `\n(No se pudo leer la pestaña "Wiki Tableros" en este momento: ${liveContext.wikiTablerosError}.)`
+        : '';
+
     dataBlock = `Datos crudos leídos en vivo del Sheet (${liveContext.fetchedAt}).
 
 --- Pestaña "Plan Anual" (objetivos mensuales, fuente de verdad) ---
@@ -707,6 +725,7 @@ ${campaignsBlock}
 ${equipoBlock}
 ${googleAdsBlock}
 ${metaAdsBlock}
+${wikiTablerosBlock}
 ${insightsBlock || ''}
 ${adsHistoryBlock || ''}
 
