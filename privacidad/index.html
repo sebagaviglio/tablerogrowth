@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Política de Privacidad · Tablero de Growth — Bancor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6FAF9; --surface:#FFFFFF; --border:rgba(0,64,59,0.12);
+    --ink-900:#07211D; --ink-700:#25443F; --ink-500:#5C7C77; --ink-300:#95B0AC;
+    --teal-600:#00605C; --teal-700:#004B47; --orange-fill:#EE632C;
+    --font-display:'Space Grotesk',sans-serif; --font-body:'Inter',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:var(--font-body); background:
+      radial-gradient(ellipse 90% 60% at 15% -10%, rgba(11,128,120,0.08) 0%, transparent 55%), var(--bg);
+    color:var(--ink-900); line-height:1.65;
+  }
+  .wrap{ max-width:760px; margin:0 auto; padding:48px 24px 80px; }
+  header{ display:flex; align-items:center; gap:14px; margin-bottom:8px; }
+  .mark{ width:38px; height:38px; flex-shrink:0; }
+  .brand{ font-family:var(--font-display); font-weight:700; font-size:20px; letter-spacing:0.3px; }
+  .tagline{ font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:1.4px; color:var(--teal-600); margin-top:3px; }
+  h1{ font-family:var(--font-display); font-size:28px; margin:36px 0 6px; color:var(--ink-900); }
+  .updated{ font-family:var(--font-mono); font-size:11.5px; color:var(--ink-300); margin-bottom:36px; }
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:36px 40px; box-shadow:0 8px 24px rgba(7,33,29,0.05); }
+  h2{ font-family:var(--font-display); font-size:16px; color:var(--teal-700); margin:32px 0 10px; }
+  h2:first-child{ margin-top:0; }
+  p{ margin:0 0 14px; color:var(--ink-700); font-size:14.5px; }
+  ul{ margin:0 0 14px; padding-left:22px; color:var(--ink-700); font-size:14.5px; }
+  li{ margin-bottom:6px; }
+  .scope-box{
+    background:rgba(0,96,92,0.05); border:1px solid rgba(0,96,92,0.18); border-radius:10px;
+    padding:14px 18px; margin:14px 0; font-family:var(--font-mono); font-size:12.5px; color:var(--ink-700);
+  }
+  .scope-box code{ background:rgba(0,96,92,0.10); padding:1px 6px; border-radius:4px; }
+  a{ color:var(--teal-600); }
+  .contact-box{
+    background:rgba(238,99,44,0.05); border:1px solid rgba(238,99,44,0.22); border-radius:12px;
+    padding:18px 20px; margin-top:8px;
+  }
+  .contact-box p{ margin:0; }
+  footer{ text-align:center; font-family:var(--font-mono); font-size:11px; color:var(--ink-300); margin-top:28px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg class="mark" viewBox="0 0 46 46"><path d="M23 4 A19 19 0 0 1 42 23 L23 23 Z" fill="var(--orange-fill)"/><circle cx="23" cy="23" r="18" fill="none" stroke="var(--ink-900)" stroke-width="3.4"/></svg>
+    <div>
+      <div class="brand">BANCOR</div>
+      <div class="tagline">Growth · Panel Comercial 2026</div>
+    </div>
+  </header>
+
+  <h1>Política de Privacidad</h1>
+  <div class="updated">Última actualización: 18 de septiembre de 2026</div>
+
+  <div class="card">
+    <h2>1. Alcance de esta política</h2>
+    <p>
+      Esta política describe cómo el <strong>Tablero de Growth de Bancor</strong> (en adelante, "la Aplicación") accede,
+      usa y protege los datos a los que se conecta a través de las APIs de Google (Google Ads y Google Sheets).
+      La Aplicación es una herramienta de uso <strong>exclusivamente interno</strong>, desarrollada para que el equipo
+      de Growth de Bancor haga seguimiento de sus propios objetivos comerciales y campañas publicitarias.
+      No está destinada al público general ni la utilizan personas ajenas a Bancor.
+    </p>
+
+    <h2>2. Responsable</h2>
+    <p>
+      La Aplicación es administrada internamente por el equipo de Growth de Bancor. Para cualquier consulta sobre
+      esta política o sobre el tratamiento de datos, podés escribir a
+      <a href="mailto:sebagaviglio@gmail.com">sebagaviglio@gmail.com</a>.
+    </p>
+
+    <h2>3. Qué datos de Google se acceden</h2>
+    <p>La Aplicación se conecta a dos servicios de Google, usando exclusivamente los siguientes permisos (scopes):</p>
+    <div class="scope-box">
+      <code>https://www.googleapis.com/auth/adwords</code> — lectura de datos de campañas de Google Ads<br>
+      <code>https://www.googleapis.com/auth/spreadsheets</code> — lectura y escritura en una planilla interna de Google Sheets
+    </div>
+    <p>Concretamente, se accede a:</p>
+    <ul>
+      <li><strong>Google Ads:</strong> nombre de campaña, estado, cuenta, inversión (gasto), clics, conversiones y costo por adquisición (CPA) de las cuentas publicitarias propias de Bancor. No se accede a datos personales de las personas que ven o interactúan con los anuncios.</li>
+      <li><strong>Google Sheets:</strong> lectura y escritura de filas en una planilla de seguimiento interno (objetivos, resultados diarios, asignación de campañas a equipos internos). Es una planilla de uso operativo del equipo de Growth, no contiene datos personales de clientes de Bancor.</li>
+    </ul>
+
+    <h2>4. Cómo se usan estos datos</h2>
+    <p>
+      Los datos se usan exclusivamente para mostrar, dentro del Tablero de Growth, el estado de cumplimiento de
+      objetivos comerciales y el desempeño de campañas publicitarias del equipo interno de Bancor. No se usan con
+      fines publicitarios propios, no se venden, y no se procesan para generar perfiles de personas.
+    </p>
+
+    <h2>5. Con quién se comparten los datos</h2>
+    <p>
+      <strong>No se comparten con terceros.</strong> Los datos circulan únicamente entre: (a) las APIs oficiales de
+      Google (Google Ads API, Google Sheets API), (b) la infraestructura serverless donde corre la Aplicación
+      (Vercel), y (c) las personas del equipo de Growth de Bancor que tienen acceso al tablero.
+    </p>
+
+    <h2>6. Cómo se protegen los datos</h2>
+    <ul>
+      <li>Las credenciales de acceso (tokens OAuth, claves de API) se guardan como variables de entorno cifradas en la plataforma de despliegue (Vercel), nunca en el código fuente ni expuestas al navegador.</li>
+      <li>Toda comunicación viaja cifrada por HTTPS.</li>
+      <li>El acceso de escritura a Google Sheets usa una cuenta de servicio de Google Cloud con permisos acotados solo a la planilla necesaria, no a la cuenta de Google Drive completa.</li>
+      <li>El tablero en sí no requiere que los usuarios inicien sesión con su cuenta de Google — la autenticación con Google Ads y Google Sheets ocurre del lado del servidor, no del lado del usuario que mira el tablero.</li>
+    </ul>
+
+    <h2>7. Retención de datos</h2>
+    <p>
+      Los datos de campañas se cachean temporalmente (del lado del servidor y en el almacenamiento local del
+      navegador de cada usuario) para acelerar la carga del tablero, y se refrescan periódicamente desde la fuente
+      original. No se conserva un historial permanente fuera de la planilla de Google Sheets, que es propiedad y
+      está bajo control directo de Bancor.
+    </p>
+
+    <h2>8. Revocar el acceso</h2>
+    <p>
+      Cualquier persona con permisos de administración sobre la cuenta de Google Ads o el proyecto de Google Cloud
+      puede revocar el acceso de la Aplicación en cualquier momento desde
+      <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">la configuración de seguridad de Google</a>,
+      o eliminando el token de actualización (refresh token) desde Google Cloud Console.
+    </p>
+
+    <h2>9. Cambios a esta política</h2>
+    <p>
+      Si esta política cambia, se actualizará la fecha en la parte superior de esta página. El uso continuado de la
+      Aplicación después de un cambio implica la aceptación de la versión vigente.
+    </p>
+
+    <h2>10. Contacto</h2>
+    <div class="contact-box">
+      <p>Consultas sobre privacidad o sobre el tratamiento de datos de esta Aplicación:<br>
+      <strong><a href="mailto:sebagaviglio@gmail.com">sebagaviglio@gmail.com</a></strong></p>
+    </div>
+  </div>
+
+  <footer>Tablero de Growth · Bancor · Documento interno</footer>
+</div>
+</body>
+</html>
