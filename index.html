@@ -475,6 +475,17 @@
   .pm-meta{ font-family: var(--font-mono); font-size:10.5px; color: var(--ink-300); text-align:right; }
   .pm-grid{ display:block; }
   .pm-cards-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap:14px; }
+  .pm-summary-card{
+    background: var(--surface-2); border:1px solid var(--border); border-radius:16px;
+    padding:22px 26px; display:inline-flex; flex-direction:column; gap:6px; min-width:220px;
+  }
+  .pm-summary-card .pm-summary-label{
+    font-family: var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:0.5px; color: var(--ink-500);
+  }
+  .pm-summary-card .pm-summary-spend{
+    font-family: var(--font-display); font-weight:700; font-size:32px; color: var(--ink-900); line-height:1.15;
+  }
+  .pm-summary-card .pm-summary-count{ font-family: var(--font-mono); font-size:11.5px; color: var(--ink-500); }
   .pm-section-label{
     font-family: var(--font-mono); font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.4px;
     color: var(--ink-500); margin-bottom:10px;
@@ -2709,14 +2720,14 @@ function renderMetaMedia(loadingOnly){
   const key = mmMonthKey(SELECTED_MONTH_IDX);
   const entry = META_MEDIA_CACHE[key];
 
-  function splitByActiveSquad(campaigns){
-    const assigned = [], unassigned = [];
-    campaigns.forEach(c=>{
+  // Solo campañas asignadas al squad activo — las sin asignar no se
+  // muestran ni se asignan desde el tablero (eso se hace directo en la
+  // pestaña "Meta Ads" del Sheet, columna de Squad).
+  function campaignsForActiveSquad(campaigns){
+    return campaigns.filter(c=>{
       const a = MADS_ASSIGN[c.id];
-      if(a && a.squad === ACTIVE_SEGMENT) assigned.push(c);
-      else if(!a || !a.squad) unassigned.push(c);
+      return a && a.squad === ACTIVE_SEGMENT;
     });
-    return { assigned, unassigned };
   }
 
   if(countBadge){
@@ -2726,9 +2737,8 @@ function renderMetaMedia(loadingOnly){
       countBadge.textContent = '⚠';
     } else {
       const camps = (entry.data && entry.data.campaigns) || [];
-      const { assigned, unassigned } = splitByActiveSquad(camps);
-      const shown = assigned.length + unassigned.length;
-      countBadge.textContent = `${shown} en vista`;
+      const shown = campaignsForActiveSquad(camps);
+      countBadge.textContent = `${shown.length} activa${shown.length===1?'':'s'}`;
     }
   }
 
@@ -2740,27 +2750,21 @@ function renderMetaMedia(loadingOnly){
     return;
   }
   const data = entry.data;
-  if(!data || !data.campaigns || !data.campaigns.length){
-    grid.innerHTML = `<div class="pm-empty">Sin campañas con gasto en ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}.</div>`;
-    meta.textContent = entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '';
-    return;
-  }
+  const camps = campaignsForActiveSquad((data && data.campaigns) || []);
   meta.textContent = (entry.error ? '⚠ último intento de refresco falló — mostrando el último dato bueno · ' : '') +
     (entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '');
 
-  const { assigned, unassigned } = splitByActiveSquad(data.campaigns);
-
-  let html = '';
-  if(unassigned.length){
-    html += `<div class="pm-section-label">Sin asignar (${unassigned.length}) — asignalas a un squad acá abajo</div>`;
-    html += `<div class="pm-cards-grid">${unassigned.map(c=>mmCardHTML(c, data)).join('')}</div>`;
+  if(!camps.length){
+    grid.innerHTML = `<div class="pm-empty">Sin campañas de Meta Ads asignadas a ${ACTIVE_SEGMENT} en ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}.</div>`;
+    return;
   }
-  html += `<div class="pm-section-label" style="margin-top:${unassigned.length?'18px':'0'};">${ACTIVE_SEGMENT} (${assigned.length})</div>`;
-  html += assigned.length
-    ? `<div class="pm-cards-grid">${assigned.map(c=>mmCardHTML(c, data)).join('')}</div>`
-    : `<div class="pm-empty">Sin campañas de Meta Ads asignadas a ${ACTIVE_SEGMENT} todavía.</div>`;
 
-  grid.innerHTML = html;
+  const totalSpend = camps.reduce((a,c)=>a+(c.spend||0), 0);
+  grid.innerHTML = `<div class="pm-summary-card">
+    <div class="pm-summary-label">Inversión total · ${ACTIVE_SEGMENT}</div>
+    <div class="pm-summary-spend">$${fmtNum(totalSpend)}</div>
+    <div class="pm-summary-count">${camps.length} campaña${camps.length===1?'':'s'} · ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}</div>
+  </div>`;
 }
 
 function renderPaidMedia(loadingOnly){
@@ -2776,14 +2780,14 @@ function renderPaidMedia(loadingOnly){
   const key = pmMonthKey(SELECTED_MONTH_IDX);
   const entry = PAID_MEDIA_CACHE[key];
 
-  function splitByActiveSquad(campaigns){
-    const assigned = [], unassigned = [];
-    campaigns.forEach(c=>{
+  // Solo campañas asignadas al squad activo — las sin asignar no se
+  // muestran ni se asignan desde el tablero (eso se hace directo en la
+  // pestaña "Google Ads" del Sheet, columna G).
+  function campaignsForActiveSquad(campaigns){
+    return campaigns.filter(c=>{
       const a = GADS_ASSIGN[c.id];
-      if(a && a.squad === ACTIVE_SEGMENT) assigned.push(c);
-      else if(!a || !a.squad) unassigned.push(c);
+      return a && a.squad === ACTIVE_SEGMENT;
     });
-    return { assigned, unassigned };
   }
 
   if(countBadge){
@@ -2793,9 +2797,8 @@ function renderPaidMedia(loadingOnly){
       countBadge.textContent = '⚠';
     } else {
       const camps = (entry.data && entry.data.campaigns) || [];
-      const { assigned, unassigned } = splitByActiveSquad(camps);
-      const shown = assigned.length + unassigned.length;
-      countBadge.textContent = `${shown} en vista`;
+      const shown = campaignsForActiveSquad(camps);
+      countBadge.textContent = `${shown.length} activa${shown.length===1?'':'s'}`;
     }
   }
 
@@ -2812,27 +2815,21 @@ function renderPaidMedia(loadingOnly){
     return;
   }
   const data = entry.data;
-  if(!data || !data.campaigns || !data.campaigns.length){
-    grid.innerHTML = `<div class="pm-empty">Sin campañas con gasto en ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}.</div>`;
-    meta.textContent = entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '';
-    return;
-  }
+  const camps = campaignsForActiveSquad((data && data.campaigns) || []);
   meta.textContent = (entry.error ? '⚠ último intento de refresco falló — mostrando el último dato bueno · ' : '') +
     (entry.fetchedAt ? `actualizado ${new Date(entry.fetchedAt).toLocaleString('es-AR')}` : '');
 
-  const { assigned, unassigned } = splitByActiveSquad(data.campaigns);
-
-  let html = '';
-  if(unassigned.length){
-    html += `<div class="pm-section-label">Sin asignar (${unassigned.length}) — asignalas a un squad acá abajo</div>`;
-    html += `<div class="pm-cards-grid">${unassigned.map(c=>pmCardHTML(c, data)).join('')}</div>`;
+  if(!camps.length){
+    grid.innerHTML = `<div class="pm-empty">Sin campañas de Google Ads asignadas a ${ACTIVE_SEGMENT} en ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}.</div>`;
+    return;
   }
-  html += `<div class="pm-section-label" style="margin-top:${unassigned.length?'18px':'0'};">${ACTIVE_SEGMENT} (${assigned.length})</div>`;
-  html += assigned.length
-    ? `<div class="pm-cards-grid">${assigned.map(c=>pmCardHTML(c, data)).join('')}</div>`
-    : `<div class="pm-empty">Sin campañas de Google Ads asignadas a ${ACTIVE_SEGMENT} todavía.</div>`;
 
-  grid.innerHTML = html;
+  const totalSpend = camps.reduce((a,c)=>a+(c.spend||0), 0);
+  grid.innerHTML = `<div class="pm-summary-card">
+    <div class="pm-summary-label">Inversión total · ${ACTIVE_SEGMENT}</div>
+    <div class="pm-summary-spend">$${fmtNum(totalSpend)}</div>
+    <div class="pm-summary-count">${camps.length} campaña${camps.length===1?'':'s'} · ${MONTHS[SELECTED_MONTH_IDX]} ${PM_YEAR}</div>
+  </div>`;
 }
 
 /* ---------- CLOCK + AUTO-CHECK ---------- */
