@@ -669,32 +669,39 @@ function buildSystemPrompt(liveContext, insightsBlock, adsHistoryBlock) {
 
     const googleAdsBlock = liveContext.googleAdsCsv
       ? `\n--- Pestaña "Google Ads" (cuenta MCC 113-524-1144, agregado de cuentas hija) ---\n${liveContext.googleAdsCsv}\n\nCómo leer "Google Ads": columnas ID | Nombre | Cuenta | Estado | Gasto MTD | CPA |
-  Squad | Presupuesto. "Gasto MTD" es el gasto acumulado en lo que va del mes
-  (month-to-date), y "CPA" el costo por adquisición de esa campaña puntual.
+  Squad | Presupuesto | Detalle de Campaña. "Gasto MTD" es el gasto acumulado en
+  lo que va del mes (month-to-date), y "CPA" el costo por adquisición de esa
+  campaña puntual. "Detalle de Campaña" es una descripción en texto libre de
+  qué hace/busca esa campaña — usala como fuente principal cuando te pregunten
+  qué es o qué hace una campaña puntual, en vez de inferirlo solo del nombre.
   Esta pestaña es una fuente distinta de "Campañas" (esa viene de Azure DevOps,
   ésta directo de Google Ads) — pueden referirse a la misma campaña real con
   nombres parecidos pero no idénticos; si el nombre no coincide exacto, decilo
   en vez de asumir que son la misma. Cruzala con el ritmo del squad correspondiente:
   gasto alto + CPA alto + ritmo atrasado es una señal fuerte de ineficiencia en medios
-  pagos que vale la pena señalar. No inventes gasto, CPA ni presupuesto que no
-  esté explícito en esta pestaña — y no confundas "Presupuesto" (lo planeado)
-  con "Gasto MTD" (lo efectivamente gastado).`
+  pagos que vale la pena señalar. No inventes gasto, CPA, presupuesto ni detalle
+  que no esté explícito en esta pestaña — y no confundas "Presupuesto" (lo
+  planeado) con "Gasto MTD" (lo efectivamente gastado).`
       : liveContext.googleAdsError
         ? `\n(No se pudo leer la pestaña "Google Ads" en este momento: ${liveContext.googleAdsError}. Si preguntan por gasto en medios pagos, avisá que no lo tenés disponible ahora.)`
         : '';
 
     const metaAdsBlock = liveContext.metaAdsCsv
       ? `\n--- Pestaña "Meta Ads" ---\n${liveContext.metaAdsCsv}\n\nCómo leer "Meta Ads": columnas ID | Nombre | Estado | Objetivo | Gasto MTD |
-  Conversiones | CPA | Squad. "Objetivo" es el objetivo de campaña de Meta (ej.
-  Conversiones, Tráfico, Reconocimiento) — no lo confundas con el objetivo
-  mensual del squad en Plan Anual, son cosas distintas con el mismo nombre.
-  "Conversiones" es la cantidad real reportada por Meta, y "CPA" ya viene
-  calculado (Gasto MTD ÷ Conversiones, en general). Es una fuente separada de
-  "Google Ads" — mismo squad puede tener campañas corriendo en los dos canales
-  a la vez; si te preguntan por "medios pagos" en general sin especificar canal,
-  sumá o compará ambas fuentes explícitamente aclarando de dónde sale cada
-  número, nunca las mezcles en un solo total sin decirlo. No inventes gasto,
-  conversiones ni CPA que no esté explícito en esta pestaña.`
+  Conversiones | CPA | Squad | Detalle de Campaña. "Objetivo" es el objetivo de
+  campaña de Meta (ej. Conversiones, Tráfico, Reconocimiento) — no lo confundas
+  con el objetivo mensual del squad en Plan Anual, son cosas distintas con el
+  mismo nombre. "Conversiones" es la cantidad real reportada por Meta, y "CPA"
+  ya viene calculado (Gasto MTD ÷ Conversiones, en general). "Detalle de
+  Campaña" es una descripción en texto libre de qué hace/busca esa campaña —
+  usala como fuente principal cuando te pregunten qué es o qué hace una
+  campaña puntual, en vez de inferirlo solo del nombre. Es una fuente separada
+  de "Google Ads" — mismo squad puede tener campañas corriendo en los dos
+  canales a la vez; si te preguntan por "medios pagos" en general sin
+  especificar canal, sumá o compará ambas fuentes explícitamente aclarando de
+  dónde sale cada número, nunca las mezcles en un solo total sin decirlo. No
+  inventes gasto, conversiones, CPA ni detalle que no esté explícito en esta
+  pestaña.`
       : liveContext.metaAdsError
         ? `\n(No se pudo leer la pestaña "Meta Ads" en este momento: ${liveContext.metaAdsError}. Si preguntan por gasto en Meta, avisá que no lo tenés disponible ahora.)`
         : '';
